@@ -52,3 +52,7 @@ Matrix intent per canary:
 | c14 | OK | OK | 0 fail / 0 warn | — |
 | c19 | FAIL | - | 1 fail / 0 warn | error: failed to select a version for `zeroize`.     ... required by package `curve25519-dalek v3.2.1` all possible versions conflict with previously selected packages.  |
 | c20 | OK | FAIL | 0 fail / 1 warn | error[E0308]: mismatched types error: could not compile `c20` (lib) due to 1 previous error; 2 warnings emitted  |
+| c15 | OK | OK | 0 fail / 0 warn | — |
+| c16 | OK | OK | 0 fail / 0 warn | — |
+| c17 | OK | OK | 0 fail / 0 warn | — |
+| c18 | OK | OK | 0 fail / 0 warn | — |
