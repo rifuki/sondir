@@ -1,0 +1,19 @@
+[package]
+name = "solana-compat"
+version = "0.1.0"
+edition = "2021"
+description = "Solana toolchain compatibility doctor — pre-flight checks that turn deploy-time surprises into actionable warnings"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+ureq = { version = "2", features = ["json"] }
+base64 = "0.22"
+solana-pubkey = { version = "3", features = ["curve25519", "sha2"] }
+
+[profile.release]
+lto = true
