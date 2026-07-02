@@ -139,6 +139,7 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
     let litesvm_013 = locked_litesvm.as_deref().is_some_and(is_013)
         || declared_litesvm.as_deref().is_some_and(is_013);
 
+    let mut conflict_hit = false;
     if litesvm_013 && has_magicblock_vrf {
         let conflict = &facts::KNOWN_CONFLICTS[0];
         report.fail(
@@ -149,14 +150,54 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
                 "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release".into(),
             ),
         );
-    } else if let Some(version) = locked_litesvm.or(declared_litesvm) {
-        let version = version.trim_start_matches(['^', '=', '~']);
-        if let Some(runtime) = facts::litesvm_runtime(version) {
-            report.info(
-                "litesvm-runtime",
-                format!("litesvm {version}"),
-                runtime.note,
-            );
+        conflict_hit = true;
+    }
+
+    // litesvm 0.13 × instructions-sysvar >=3.0.1 (canary c06). `=3.0.0` is the
+    // one escape hatch, so only that exact pin is exempt.
+    if litesvm_013 {
+        if let Some(sysvar) = declared.get("solana-instructions-sysvar") {
+            if sysvar != "=3.0.0" {
+                let conflict = &facts::KNOWN_CONFLICTS[1];
+                report.fail(
+                    "dep-conflict",
+                    format!("{} × {}", conflict.a, conflict.b),
+                    conflict.why,
+                    Some(
+                        "pin solana-instructions-sysvar = \"=3.0.0\" or use litesvm 0.12.x".into(),
+                    ),
+                );
+                conflict_hit = true;
+            }
+        }
+    }
+
+    // Legacy solana-program 1.x inside a modern workspace (canary c19).
+    let legacy_solana_program = declared
+        .get("solana-program")
+        .or_else(|| project.locked.get("solana-program"))
+        .is_some_and(|v| v.trim_start_matches(['^', '=', '~']).starts_with("1."));
+    if legacy_solana_program {
+        let conflict = &facts::KNOWN_CONFLICTS[2];
+        report.fail(
+            "dep-conflict",
+            format!("{} × {}", conflict.a, conflict.b),
+            conflict.why,
+            Some("remove the direct solana-program dependency; use anchor_lang::solana_program re-exports".into()),
+        );
+        conflict_hit = true;
+    }
+
+    if !conflict_hit {
+        if let Some(version) = locked_litesvm.or(declared_litesvm) {
+            let version = version.trim_start_matches(['^', '=', '~']);
+            if let Some(runtime) = facts::litesvm_runtime(version) {
+                report.info(
+                    "litesvm-runtime",
+                    format!("litesvm {version}"),
+                    runtime.note,
+                );
+            }
         }
     }
 }
