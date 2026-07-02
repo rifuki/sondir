@@ -41,3 +41,14 @@ Matrix intent per canary:
 
 1. **`anchor init` (CLI 1.1.2) templates ship `litesvm = "0.13.1"` in dev-dependencies** — so any fresh project + MagicBlock vrf is unresolvable out of the box (c05). Template-level breakage; strengthens the upstream litesvm issue.
 2. **sondir bug found+fixed by c05**: a failed `cargo add` leaves a STALE lockfile (here: litesvm 0.10.0 in lock vs 0.13.1 declared) — dep checks must read declared manifests too, and a generic `resolve` probe (cargo metadata) is mandatory. Shipped as checks `resolve` + declared-deps fallback.
+| c06 | FAIL | - | 1 fail / 0 warn | error: failed to select a version for `solana-instruction`.     ... required by package `litesvm v0.13.1` all possible versions conflict with previously selected packages.  |
+| c07 | OK | OK | 0 fail / 0 warn | — |
+| c08 | OK | OK | 0 fail / 0 warn | — |
+| c09 | OK | OK | 0 fail / 0 warn | — |
+| c10 | OK | OK | 0 fail / 0 warn | — |
+| c11 | OK | OK | 0 fail / 0 warn | — |
+| c12 | OK | OK | 0 fail / 0 warn | — |
+| c13 | OK | OK | 0 fail / 0 warn | — |
+| c14 | OK | OK | 0 fail / 0 warn | — |
+| c19 | FAIL | - | 1 fail / 0 warn | error: failed to select a version for `zeroize`.     ... required by package `curve25519-dalek v3.2.1` all possible versions conflict with previously selected packages.  |
+| c20 | OK | FAIL | 0 fail / 1 warn | error[E0308]: mismatched types error: could not compile `c20` (lib) due to 1 previous error; 2 warnings emitted  |

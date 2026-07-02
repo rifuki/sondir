@@ -110,11 +110,23 @@ pub struct KnownConflict {
     pub why: &'static str,
 }
 
-pub const KNOWN_CONFLICTS: &[KnownConflict] = &[KnownConflict {
-    a: "litesvm >=0.13",
-    b: "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3",
-    why: "litesvm 0.13.x pins solana-instruction =3.2.0 (Agave 4.0 wave) while the MagicBlock chain requires ^3.4 (Agave 4.1 wave); cargo cannot unify same-major exact vs caret. Unlocks when litesvm ships an Agave-4.1-wave release.",
-}];
+pub const KNOWN_CONFLICTS: &[KnownConflict] = &[
+    KnownConflict {
+        a: "litesvm >=0.13",
+        b: "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3",
+        why: "litesvm 0.13.x pins solana-instruction =3.2.0 (Agave 4.0 wave) while the MagicBlock chain requires ^3.4 (Agave 4.1 wave); cargo cannot unify same-major exact vs caret. Unlocks when litesvm ships an Agave-4.1-wave release. NOTE: `anchor init` (CLI 1.1.2) templates ship litesvm 0.13.1, so fresh-project + MagicBlock hits this immediately (canary c05).",
+    },
+    KnownConflict {
+        a: "litesvm >=0.13",
+        b: "solana-instructions-sysvar >=3.0.1",
+        why: "solana-instructions-sysvar 3.0.1 requires solana-instruction ^3.4.0; litesvm 0.13.x pins =3.2.0 (canary c06). Pin solana-instructions-sysvar to =3.0.0 (rides ^3.0.0) or drop litesvm to 0.12.x.",
+    },
+    KnownConflict {
+        a: "solana-program 1.x (legacy)",
+        b: "modern anchor workspace (solana-* 3.x wave)",
+        why: "the legacy 1.x line drags curve25519-dalek 3.2.1 whose zeroize pin clashes with the modern tree (canary c19: `failed to select a version for zeroize`). Remove the direct solana-program dep and use anchor_lang re-exports (or granular solana-* 3.x crates).",
+    },
+];
 
 #[cfg(test)]
 mod tests {
