@@ -19,7 +19,10 @@ impl RpcClient {
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(15))
             .build();
-        Self { url: url.into(), agent }
+        Self {
+            url: url.into(),
+            agent,
+        }
     }
 
     pub fn url(&self) -> &str {
@@ -28,29 +31,43 @@ impl RpcClient {
 
     fn call(&self, method: &str, params: Value) -> Result<Value> {
         let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-        let response: Value = self
-            .agent
-            .post(&self.url)
-            .set("content-type", "application/json")
-            .send_json(body)
-            .with_context(|| format!("RPC {method} failed against {}", self.url))?
-            .into_json()
-            .context("RPC response was not JSON")?;
-        if let Some(err) = response.get("error") {
-            return Err(anyhow!("RPC {method} error: {err}"));
+        // One retry with a short backoff: public endpoints drop or rate-limit
+        // often enough that a single transient failure shouldn't reach the user.
+        let mut last_err = None;
+        for attempt in 0..2 {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            }
+            match self
+                .agent
+                .post(&self.url)
+                .set("content-type", "application/json")
+                .send_json(body.clone())
+            {
+                Ok(response) => {
+                    let response: Value =
+                        response.into_json().context("RPC response was not JSON")?;
+                    if let Some(err) = response.get("error") {
+                        return Err(anyhow!("RPC {method} error: {err}"));
+                    }
+                    return response
+                        .get("result")
+                        .cloned()
+                        .ok_or_else(|| anyhow!("RPC {method}: no result field"));
+                }
+                Err(err) => last_err = Some(err),
+            }
         }
-        response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| anyhow!("RPC {method}: no result field"))
+        Err(anyhow!(
+            "RPC {method} failed against {} after retry: {}",
+            self.url,
+            last_err.map(|e| e.to_string()).unwrap_or_default()
+        ))
     }
 
     /// `None` when the account does not exist.
     pub fn account(&self, pubkey: &str) -> Result<Option<AccountInfo>> {
-        let result = self.call(
-            "getAccountInfo",
-            json!([pubkey, {"encoding": "base64"}]),
-        )?;
+        let result = self.call("getAccountInfo", json!([pubkey, {"encoding": "base64"}]))?;
         let value = &result["value"];
         if value.is_null() {
             return Ok(None);

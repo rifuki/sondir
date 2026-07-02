@@ -105,12 +105,43 @@ impl Report {
             }
             let fails = self.count(Severity::Fail);
             let warns = self.count(Severity::Warn);
-            println!("\n{} fail · {} warn · {} findings", fails, warns, self.findings.len());
+            println!(
+                "\n{} fail · {} warn · {} findings",
+                fails,
+                warns,
+                self.findings.len()
+            );
         }
         Ok(i32::from(self.count(Severity::Fail) > 0))
     }
 
     fn count(&self, severity: Severity) -> usize {
-        self.findings.iter().filter(|f| f.severity == severity).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == severity)
+            .count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_is_one_only_when_a_fail_exists() {
+        let mut report = Report::default();
+        report.warn("w", "warn", "detail", None);
+        assert_eq!(report.count(Severity::Fail), 0);
+        report.fail("f", "fail", "detail", None);
+        assert_eq!(report.count(Severity::Fail), 1);
+    }
+
+    #[test]
+    fn findings_keep_insertion_order() {
+        let mut report = Report::default();
+        report.ok("a", "first", "");
+        report.fail("b", "second", "", None);
+        assert_eq!(report.findings[0].code, "a");
+        assert_eq!(report.findings[1].code, "b");
     }
 }

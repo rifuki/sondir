@@ -55,14 +55,22 @@ pub struct Artifact {
 impl Project {
     pub fn load(root: &Path) -> Result<Self> {
         let anchor_path = root.join("Anchor.toml");
-        let anchor_raw = fs::read_to_string(&anchor_path)
-            .with_context(|| format!("cannot read {}", anchor_path.display()))?;
+        let anchor_raw = fs::read_to_string(&anchor_path).with_context(|| {
+            format!(
+                "cannot read {} — is this an Anchor workspace? (point --path at the directory containing Anchor.toml)",
+                anchor_path.display()
+            )
+        })?;
         let anchor: AnchorConfig =
             toml::from_str(&anchor_raw).context("Anchor.toml did not parse")?;
 
         let locked = read_lockfile(&root.join("Cargo.lock")).unwrap_or_default();
 
-        Ok(Self { root: root.to_owned(), anchor, locked })
+        Ok(Self {
+            root: root.to_owned(),
+            anchor,
+            locked,
+        })
     }
 
     /// The `[programs.<cluster>]` table matching the provider cluster, falling
@@ -86,7 +94,10 @@ impl Project {
         let mut artifacts = Vec::new();
         for (name, program_id) in &ids {
             let artifact_name = name.replace('-', "_");
-            let so_path = self.root.join("target/deploy").join(format!("{artifact_name}.so"));
+            let so_path = self
+                .root
+                .join("target/deploy")
+                .join(format!("{artifact_name}.so"));
             if let Ok(bytes) = fs::read(&so_path) {
                 artifacts.push(Artifact {
                     name: name.clone(),
@@ -121,7 +132,7 @@ impl Project {
         if let Some(url) = override_url {
             return url.to_owned();
         }
-        if let Ok(url) = std::env::var("SOLANA_COMPAT_RPC") {
+        if let Ok(url) = std::env::var("SONDIR_RPC") {
             return url;
         }
         cluster_to_url(&self.anchor.provider.cluster)
@@ -129,6 +140,10 @@ impl Project {
 }
 
 fn read_lockfile(path: &Path) -> Result<BTreeMap<String, String>> {
+    parse_lockfile(&fs::read_to_string(path)?)
+}
+
+fn parse_lockfile(raw: &str) -> Result<BTreeMap<String, String>> {
     #[derive(Deserialize)]
     struct Lock {
         #[serde(default)]
@@ -139,8 +154,7 @@ fn read_lockfile(path: &Path) -> Result<BTreeMap<String, String>> {
         name: String,
         version: String,
     }
-    let raw = fs::read_to_string(path)?;
-    let lock: Lock = toml::from_str(&raw)?;
+    let lock: Lock = toml::from_str(raw)?;
     Ok(lock
         .package
         .into_iter()
@@ -200,4 +214,77 @@ pub fn tool_version(tool: &str) -> Option<String> {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sbpf_flag_reads_e_flags_at_offset_48() {
+        let mut elf = vec![0u8; 64];
+        elf[48] = 3;
+        assert_eq!(sbpf_flag(&elf), 3);
+    }
+
+    #[test]
+    fn sbpf_flag_on_truncated_file_is_sentinel() {
+        assert_eq!(sbpf_flag(&[0u8; 10]), u32::MAX);
+    }
+
+    #[test]
+    fn cluster_key_normalizes_urls() {
+        assert_eq!(
+            normalize_cluster_key("https://foo.solana-devnet.quiknode.pro/abc"),
+            "devnet"
+        );
+        assert_eq!(normalize_cluster_key("localnet"), "localnet");
+    }
+
+    #[test]
+    fn cluster_to_url_maps_known_names_and_passes_urls_through() {
+        assert_eq!(cluster_to_url("devnet"), "https://api.devnet.solana.com");
+        assert_eq!(cluster_to_url("http://my-rpc:8899"), "http://my-rpc:8899");
+        assert_eq!(cluster_to_url(""), "http://127.0.0.1:8899");
+    }
+
+    #[test]
+    fn anchor_config_parses_the_shapes_doctor_relies_on() {
+        let config: AnchorConfig = toml::from_str(
+            r#"
+            [toolchain]
+            anchor_version = "1.1.2"
+            [programs.devnet]
+            my-program = "7uXfkM1LGqy8wQkBV6Dg7mvQwFTTBBNjBnwM6FxSkVob"
+            [provider]
+            cluster = "devnet"
+            wallet = "wallet.json"
+            [scripts]
+            test = "cargo test"
+            "#,
+        )
+        .expect("valid Anchor.toml");
+        assert_eq!(config.toolchain.anchor_version.as_deref(), Some("1.1.2"));
+        assert_eq!(config.provider.cluster, "devnet");
+        assert_eq!(config.programs["devnet"]["my-program"].len(), 44);
+        assert_eq!(config.scripts["test"], "cargo test");
+    }
+
+    #[test]
+    fn lockfile_parse_extracts_name_version_pairs() {
+        let locked = parse_lockfile(
+            r#"
+            version = 4
+            [[package]]
+            name = "litesvm"
+            version = "0.12.0"
+            [[package]]
+            name = "anchor-lang"
+            version = "1.1.2"
+            "#,
+        )
+        .expect("valid lockfile");
+        assert_eq!(locked["litesvm"], "0.12.0");
+        assert_eq!(locked["anchor-lang"], "1.1.2");
+    }
 }
