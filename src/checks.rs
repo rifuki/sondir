@@ -1,6 +1,7 @@
 //! Doctor checks. Each converts a class of deploy-time surprise into a
 //! pre-flight finding with a concrete fix.
 
+use std::process::Command;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -71,24 +72,86 @@ pub fn toolchain(report: &mut Report, project: &Project) {
     }
 }
 
-/// Known unresolvable dependency pairs, straight from the facts DB.
-pub fn known_conflicts(report: &mut Report, project: &Project) {
-    let litesvm = project.locked.get("litesvm");
-    let has_magicblock_vrf = project.locked.contains_key("ephemeral-vrf-sdk");
-
-    if let Some(version) = litesvm {
-        if version.starts_with("0.13.") && has_magicblock_vrf {
-            let conflict = &facts::KNOWN_CONFLICTS[0];
+/// Does the workspace even resolve? The lockfile can look healthy while the
+/// manifest graph is unresolvable (`cargo add` writes the dep, then fails to
+/// re-lock) — so probe cargo itself. Found by canary c05.
+pub fn resolve_probe(report: &mut Report, project: &Project) {
+    let output = Command::new("cargo")
+        .args(["metadata", "--format-version", "1"])
+        .current_dir(&project.root)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => report.ok(
+            "resolve",
+            "dependency graph resolves",
+            "cargo metadata succeeded",
+        ),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let mut summary: String = stderr
+                .lines()
+                .filter(|line| {
+                    line.contains("failed to select")
+                        || line.contains("required by")
+                        || line.contains("previously selected")
+                        || line.contains("which satisfies")
+                })
+                .take(5)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if summary.is_empty() {
+                summary = stderr.lines().take(3).collect::<Vec<_>>().join("\n");
+            }
             report.fail(
-                "dep-conflict",
-                format!("{} × {}", conflict.a, conflict.b),
-                conflict.why,
+                "resolve",
+                "dependency graph does NOT resolve",
+                summary,
                 Some(
-                    "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release"
+                    "see the dep-conflict finding for known causes; full chain: `cargo metadata`"
                         .into(),
                 ),
             );
-        } else if let Some(runtime) = facts::litesvm_runtime(version) {
+        }
+        Err(err) => report.warn(
+            "resolve",
+            "cargo not found — resolve probe skipped",
+            format!("{err}"),
+            None,
+        ),
+    }
+}
+
+/// Known unresolvable dependency pairs, straight from the facts DB. Reads BOTH
+/// the lockfile and the declared manifests (the lock lies after a failed
+/// resolve — canary c05).
+pub fn known_conflicts(report: &mut Report, project: &Project) {
+    let declared = project.declared_deps();
+    let has_magicblock_vrf = project.locked.contains_key("ephemeral-vrf-sdk")
+        || declared.contains_key("ephemeral-vrf-sdk")
+        || declared.contains_key("ephemeral-rollups-sdk");
+
+    // The lock and the manifest can disagree (stale lock after a failed
+    // resolve, canary c05: lock said 0.10.0 while the manifest declared
+    // 0.13.1) — treat EITHER source matching as a hit.
+    let is_013 = |v: &str| v.trim_start_matches(['^', '=', '~']).starts_with("0.13");
+    let locked_litesvm = project.locked.get("litesvm").cloned();
+    let declared_litesvm = declared.get("litesvm").cloned();
+    let litesvm_013 = locked_litesvm.as_deref().is_some_and(is_013)
+        || declared_litesvm.as_deref().is_some_and(is_013);
+
+    if litesvm_013 && has_magicblock_vrf {
+        let conflict = &facts::KNOWN_CONFLICTS[0];
+        report.fail(
+            "dep-conflict",
+            format!("{} × {}", conflict.a, conflict.b),
+            conflict.why,
+            Some(
+                "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release".into(),
+            ),
+        );
+    } else if let Some(version) = locked_litesvm.or(declared_litesvm) {
+        let version = version.trim_start_matches(['^', '=', '~']);
+        if let Some(runtime) = facts::litesvm_runtime(version) {
             report.info(
                 "litesvm-runtime",
                 format!("litesvm {version}"),

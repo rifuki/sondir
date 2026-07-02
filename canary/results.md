@@ -31,3 +31,13 @@ Matrix intent per canary:
 
 | id | resolve | native check | sondir (offline) | notes |
 |---|---|---|---|---|
+| c01 | OK | OK | 0 fail / 0 warn | — |
+| c02 | OK | OK | 0 fail / 0 warn | — |
+| c03 | OK | OK | 0 fail / 0 warn | — |
+| c04 | OK | OK | 0 fail / 0 warn | — |
+| c05 | FAIL | - | 2 fail / 0 warn (after sondir fix) | error: failed to select a version for `solana-instruction`.     ... required by package `solana-system-interface v3.2.0` all possible versions conflict with previously selected packages.  |
+
+## Discoveries
+
+1. **`anchor init` (CLI 1.1.2) templates ship `litesvm = "0.13.1"` in dev-dependencies** — so any fresh project + MagicBlock vrf is unresolvable out of the box (c05). Template-level breakage; strengthens the upstream litesvm issue.
+2. **sondir bug found+fixed by c05**: a failed `cargo add` leaves a STALE lockfile (here: litesvm 0.10.0 in lock vs 0.13.1 declared) — dep checks must read declared manifests too, and a generic `resolve` probe (cargo metadata) is mandatory. Shipped as checks `resolve` + declared-deps fallback.

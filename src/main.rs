@@ -82,6 +82,7 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
 
     checks::toolchain(&mut report, &project);
     checks::known_conflicts(&mut report, &project);
+    checks::resolve_probe(&mut report, &project);
     checks::anchor_test_footgun(&mut report, &project);
     checks::idl_rule(&mut report);
 
