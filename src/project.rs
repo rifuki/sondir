@@ -137,6 +137,53 @@ impl Project {
         }
         cluster_to_url(&self.anchor.provider.cluster)
     }
+
+    /// Declared (not resolved) dependency versions across `programs/*/Cargo.toml`.
+    ///
+    /// The lockfile lies when resolution itself failed: `cargo add` writes the
+    /// manifest, fails to re-lock, and the stale lock never mentions the new
+    /// dep. Conflict checks must therefore also see what is DECLARED.
+    /// (Found by canary c05.)
+    pub fn declared_deps(&self) -> BTreeMap<String, String> {
+        let mut declared = BTreeMap::new();
+        let Ok(entries) = fs::read_dir(self.root.join("programs")) else {
+            return declared;
+        };
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let manifest = entry.path().join("Cargo.toml");
+            let Ok(raw) = fs::read_to_string(&manifest) else {
+                continue;
+            };
+            for (name, version) in parse_declared(&raw) {
+                declared.insert(name, version);
+            }
+        }
+        declared
+    }
+}
+
+fn parse_declared(raw: &str) -> Vec<(String, String)> {
+    let Ok(value) = raw.parse::<toml::Value>() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for table in ["dependencies", "dev-dependencies"] {
+        if let Some(deps) = value.get(table).and_then(|v| v.as_table()) {
+            for (name, spec) in deps {
+                let version = match spec {
+                    toml::Value::String(v) => v.clone(),
+                    toml::Value::Table(t) => t
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("*")
+                        .to_owned(),
+                    _ => "*".to_owned(),
+                };
+                out.push((name.clone(), version));
+            }
+        }
+    }
+    out
 }
 
 fn read_lockfile(path: &Path) -> Result<BTreeMap<String, String>> {
@@ -286,5 +333,24 @@ mod tests {
         .expect("valid lockfile");
         assert_eq!(locked["litesvm"], "0.12.0");
         assert_eq!(locked["anchor-lang"], "1.1.2");
+    }
+}
+
+#[cfg(test)]
+mod declared_tests {
+    use super::*;
+
+    #[test]
+    fn declared_deps_sees_plain_and_table_specs() {
+        let deps = parse_declared(
+            r#"
+            [dependencies]
+            ephemeral-rollups-sdk = { version = "0.15.5", features = ["anchor", "vrf"] }
+            [dev-dependencies]
+            litesvm = "0.13.1"
+            "#,
+        );
+        assert!(deps.contains(&("litesvm".into(), "0.13.1".into())));
+        assert!(deps.contains(&("ephemeral-rollups-sdk".into(), "0.15.5".into())));
     }
 }
