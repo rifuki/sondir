@@ -170,7 +170,7 @@ pub fn artifacts(report: &mut Report, project: &Project, built: &[Artifact], gat
 /// NOT the id in Anchor.toml or `declare_id!`. When they disagree, deploys land
 /// on a different (possibly fresh) program id while the code self-identifies as
 /// another — the classic silent-wrong-address incident.
-pub fn keypair_drift(report: &mut Report, project: &Project, built: &[Artifact]) {
+pub fn keypair_drift(report: &mut Report, built: &[Artifact]) {
     for artifact in built {
         let Some(config_id) = &artifact.program_id else { continue };
         let keypair_path = artifact

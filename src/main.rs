@@ -93,7 +93,7 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
     let rpc = RpcClient::new(project.rpc_url(url));
     report.info("rpc", format!("cluster RPC: {}", rpc.url()), "override with --url or $SOLANA_COMPAT_RPC");
 
-    checks::keypair_drift(&mut report, &project, &built);
+    checks::keypair_drift(&mut report, &built);
 
     match checks::gates(&mut report, &rpc) {
         Ok(gate) => {
