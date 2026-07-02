@@ -56,3 +56,23 @@ Matrix intent per canary:
 | c16 | OK | OK | 0 fail / 0 warn | — |
 | c17 | OK | OK | 0 fail / 0 warn | — |
 | c18 | OK | OK | 0 fail / 0 warn | — |
+
+## Deploy runs (devnet via dedicated RPC, canary wallet D87G9f…, all programs closed after — net cost ≈ 0.012 SOL)
+
+| id | flow | result |
+|---|---|---|
+| c01 | deploy v0 → close | ✓ deployed `5HWuxo…`, closed, rent reclaimed |
+| c10 | `anchor build` (cargo-build-sbf, platform-tools v1.54) with blake3 latest | ✓ **edition2024 breakage is GONE in v1.54** (historic v1.48 blocker resolved) |
+| c15 | build `--arch v1` → deploy | **DEPLOYED** `DV15iy…` — the "v1/v2 were never deploy-enabled" belief is WRONG under the SBPFv3 e_flags gate; sondir fact corrected + false-positive fixed |
+| c16 | build `--arch v3` → deploy → close | ✓ `zjQgsF…` |
+| c17 | deploy → grow +2088 B → sondir predict → upgrade → fix → upgrade | ✓ full SIMD-0431 trap cycle: sondir FAILED it pre-flight ("upgrade WILL fail"), anchor then failed exactly so (stranding 1.037 SOL, which sondir detected), `extend 10240` per sondir's fix, upgrade succeeded, closed |
+| c18 | two-program workspace | ✓ both built, both deployed (`5QLdY1…`, `EmcGSw…`), both closed |
+
+## Discoveries (batch 2 + deploys)
+
+3. **c06**: litesvm 0.13.1 × `solana-instructions-sysvar 3.0.1` unresolvable; `=3.0.0` (c07) is the escape hatch. → facts + dep-conflict check.
+4. **c11–c14**: Light Protocol (light-sdk), Pyth (pyth-solana-receiver-sdk), Switchboard (switchboard-on-demand), Metaplex (mpl-core) all resolve + type-check against anchor-lang 1.1.2. Good ecosystem health at the resolve level.
+5. **c19**: legacy `solana-program 1.18` in a modern workspace fails resolution on `zeroize` via `curve25519-dalek 3.2.1` — the classic; now a named dep-conflict with fix.
+6. **c20**: anchor-lang 0.31.1 under CLI 1.1.2 resolves but the v1 template source fails to compile (E0308) — the toolchain-anchor warn fires; template/API skew is the real hazard.
+7. **c15 correction**: devnet ACCEPTED an arch-v1 deploy — with the SBPFv3 gate active, e_flags maps directly and v0–v3 are all deployable (until SIMD-0500 kills 0–2). `facts::arch_deployable` corrected; test updated.
+8. **edition2024 (c10)**: platform-tools v1.54's bundled cargo handles `edition = "2024"` crates (blake3 latest builds for SBF). The Jan-2026 pinning ritual (blake3=1.8.2 etc.) is obsolete on v1.54+.
