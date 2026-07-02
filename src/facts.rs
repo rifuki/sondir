@@ -63,9 +63,22 @@ pub fn arch_deployable(
                 Ok(())
             }
         }
-        1 | 2 => Err(format!(
-            "SBPF v{flag} was never deploy-enabled on any cluster — it is a local-test-only arch (litesvm). Rebuild with the default arch or --arch v3 before deploying"
-        )),
+        1 | 2 => {
+            if simd_0500_active {
+                Err(format!(
+                    "SBPF v{flag} deploys are disabled on this cluster (SIMD-0500 active) — build with --arch v3"
+                ))
+            } else if sbpf_v3_active {
+                // EMPIRICAL (canary c15, devnet 2026-07-03): with the SBPFv3
+                // gate active the e_flags direct mapping accepts v1/v2 deploys
+                // too — the old "v1/v2 were never enabled" belief is obsolete.
+                Ok(())
+            } else {
+                Err(format!(
+                    "SBPF v{flag} is not deployable on clusters without the SBPFv3 e_flags-mapping gate"
+                ))
+            }
+        }
         3 => {
             if sbpf_v3_active {
                 Ok(())
@@ -143,9 +156,12 @@ mod tests {
     }
 
     #[test]
-    fn v1_and_v2_were_never_cluster_deployable() {
-        assert!(arch_deployable(1, true, false).is_err());
-        assert!(arch_deployable(2, true, false).is_err());
+    fn v1_v2_deployable_only_under_the_v3_gate() {
+        // empirically corrected by canary c15 (devnet accepted arch v1)
+        assert!(arch_deployable(1, true, false).is_ok());
+        assert!(arch_deployable(2, true, false).is_ok());
+        assert!(arch_deployable(1, false, false).is_err());
+        assert!(arch_deployable(1, true, true).is_err());
     }
 
     #[test]
