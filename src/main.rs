@@ -1,4 +1,4 @@
-//! solana-compat — Solana toolchain compatibility helper.
+//! sondir — the soil test before you build (Solana toolchain pre-flight & compatibility).
 //!
 //! `doctor` runs read-only pre-flight checks that turn deploy-time surprises
 //! (SIMD-0431 extends, arch mismatches, stranded buffers, IDL init-vs-upgrade)
@@ -21,7 +21,7 @@ use crate::report::Report;
 use crate::rpc::RpcClient;
 
 #[derive(Parser)]
-#[command(name = "solana-compat", version, about)]
+#[command(name = "sondir", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -34,7 +34,7 @@ enum Command {
         /// Workspace root (containing Anchor.toml).
         #[arg(long, default_value = ".")]
         path: PathBuf,
-        /// RPC URL override (else $SOLANA_COMPAT_RPC, else Anchor.toml provider.cluster).
+        /// RPC URL override (else $SONDIR_RPC, else Anchor.toml provider.cluster).
         #[arg(long)]
         url: Option<String>,
         /// Emit findings as JSON (for agents / CI).
@@ -61,7 +61,12 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<i32> {
     match cli.command {
-        Command::Doctor { path, url, json, offline } => doctor(&path, url.as_deref(), json, offline),
+        Command::Doctor {
+            path,
+            url,
+            json,
+            offline,
+        } => doctor(&path, url.as_deref(), json, offline),
         Command::Resolve => {
             println!(
                 "resolve is on the roadmap: multi-select ecosystem deps -> synthetic manifest -> cargo resolver -> explained version set.\nFor now see the curated facts in this binary (doctor) and the raflux toolchain matrix doc."
@@ -85,20 +90,28 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
     if offline {
         report.info("offline", "offline mode", "cluster checks skipped");
         // Arch-vs-litesvm still works offline; cluster gates default to inactive.
-        let gate = checks::GateStatus { sbpf_v3: true, simd_0431: false, simd_0500: false };
+        let gate = checks::GateStatus {
+            sbpf_v3: true,
+            simd_0431: false,
+            simd_0500: false,
+        };
         checks::artifacts(&mut report, &project, &built, &gate);
         return report.print(json);
     }
 
     let rpc = RpcClient::new(project.rpc_url(url));
-    report.info("rpc", format!("cluster RPC: {}", rpc.url()), "override with --url or $SOLANA_COMPAT_RPC");
+    report.info(
+        "rpc",
+        format!("cluster RPC: {}", rpc.url()),
+        "override with --url or $SONDIR_RPC",
+    );
 
     checks::keypair_drift(&mut report, &built);
 
     match checks::gates(&mut report, &rpc) {
         Ok(gate) => {
             checks::artifacts(&mut report, &project, &built, &gate);
-            checks::upgrade_preflight(&mut report, &rpc, &project, &built, &gate)?;
+            checks::upgrade_preflight(&mut report, &rpc, &project, &built, &gate);
             checks::stranded_buffers(&mut report, &rpc, &project);
             checks::balance(&mut report, &rpc, &project, &built);
         }
@@ -107,7 +120,10 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
                 "rpc",
                 "cluster unreachable — on-chain checks skipped",
                 format!("{err:#}"),
-                Some("re-run with --url <working RPC> (public devnet rate-limits aggressively)".into()),
+                Some(
+                    "re-run with --url <working RPC> (public devnet rate-limits aggressively)"
+                        .into(),
+                ),
             );
         }
     }

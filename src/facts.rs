@@ -50,7 +50,11 @@ pub const GATES: &[FeatureGate] = &[
 ///
 /// v1/v2 were never enabled for cluster deployment: they exist only for local
 /// runtimes (litesvm/mollusk).
-pub fn arch_deployable(flag: u32, sbpf_v3_active: bool, simd_0500_active: bool) -> Result<(), String> {
+pub fn arch_deployable(
+    flag: u32,
+    sbpf_v3_active: bool,
+    simd_0500_active: bool,
+) -> Result<(), String> {
     match flag {
         0 => {
             if simd_0500_active {
@@ -111,3 +115,47 @@ pub const KNOWN_CONFLICTS: &[KnownConflict] = &[KnownConflict {
     b: "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3",
     why: "litesvm 0.13.x pins solana-instruction =3.2.0 (Agave 4.0 wave) while the MagicBlock chain requires ^3.4 (Agave 4.1 wave); cargo cannot unify same-major exact vs caret. Unlocks when litesvm ships an Agave-4.1-wave release.",
 }];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v0_is_deployable_until_simd_0500_activates() {
+        assert!(arch_deployable(0, true, false).is_ok());
+    }
+
+    #[test]
+    fn v0_dies_when_simd_0500_activates() {
+        assert!(arch_deployable(0, true, true).is_err());
+    }
+
+    #[test]
+    fn v1_and_v2_were_never_cluster_deployable() {
+        assert!(arch_deployable(1, true, false).is_err());
+        assert!(arch_deployable(2, true, false).is_err());
+    }
+
+    #[test]
+    fn v3_requires_its_gate() {
+        assert!(arch_deployable(3, false, false).is_err());
+        assert!(arch_deployable(3, true, false).is_ok());
+    }
+
+    #[test]
+    fn litesvm_012_executes_v1_v2_only() {
+        let runtime = litesvm_runtime("0.12.0").expect("known version");
+        assert_eq!(runtime.arch_ok, &[1, 2]);
+    }
+
+    #[test]
+    fn litesvm_013_executes_v3() {
+        let runtime = litesvm_runtime("0.13.1").expect("known version");
+        assert_eq!(runtime.arch_ok, &[3]);
+    }
+
+    #[test]
+    fn unknown_litesvm_yields_no_claim() {
+        assert!(litesvm_runtime("0.14.0").is_none());
+    }
+}

@@ -63,7 +63,11 @@ pub fn toolchain(report: &mut Report, project: &Project) {
     }
 
     if let Some(solana) = solana_cli {
-        report.info("toolchain-solana", solana, "CLI binary — never constrains crate versions");
+        report.info(
+            "toolchain-solana",
+            solana,
+            "CLI binary — never constrains crate versions",
+        );
     }
 }
 
@@ -79,17 +83,28 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
                 "dep-conflict",
                 format!("{} × {}", conflict.a, conflict.b),
                 conflict.why,
-                Some("downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release".into()),
+                Some(
+                    "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release"
+                        .into(),
+                ),
             );
         } else if let Some(runtime) = facts::litesvm_runtime(version) {
-            report.info("litesvm-runtime", format!("litesvm {version}"), runtime.note);
+            report.info(
+                "litesvm-runtime",
+                format!("litesvm {version}"),
+                runtime.note,
+            );
         }
     }
 }
 
 /// Cluster feature gates that change deploy semantics.
 pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
-    let mut status = GateStatus { sbpf_v3: false, simd_0431: false, simd_0500: false };
+    let mut status = GateStatus {
+        sbpf_v3: false,
+        simd_0431: false,
+        simd_0500: false,
+    };
     for gate in facts::GATES {
         let active = rpc.feature_active(gate.address)?.unwrap_or(false);
         match gate.simd {
@@ -102,7 +117,11 @@ pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
         report.info(
             "gate",
             format!("{} {} — {state}", gate.simd, gate.name),
-            if active { gate.consequence } else { "no effect yet" },
+            if active {
+                gate.consequence
+            } else {
+                "no effect yet"
+            },
         );
     }
     Ok(status)
@@ -120,17 +139,19 @@ pub fn artifacts(report: &mut Report, project: &Project, built: &[Artifact], gat
         return;
     }
 
-    let litesvm_runtime = project
-        .locked
-        .get("litesvm")
-        .and_then(|version| facts::litesvm_runtime(version).map(|runtime| (version.clone(), runtime)));
+    let litesvm_runtime = project.locked.get("litesvm").and_then(|version| {
+        facts::litesvm_runtime(version).map(|runtime| (version.clone(), runtime))
+    });
 
     for artifact in built {
         let flag = artifact.sbpf_flag;
         match facts::arch_deployable(flag, gate.sbpf_v3, gate.simd_0500) {
             Ok(()) => report.ok(
                 "arch-cluster",
-                format!("{}.so arch v{flag} — deployable on target cluster", artifact.name),
+                format!(
+                    "{}.so arch v{flag} — deployable on target cluster",
+                    artifact.name
+                ),
                 format!("{} bytes · {}", artifact.so_len, artifact.so_path.display()),
             ),
             Err(why) => report.fail(
@@ -172,11 +193,15 @@ pub fn artifacts(report: &mut Report, project: &Project, built: &[Artifact], gat
 /// another — the classic silent-wrong-address incident.
 pub fn keypair_drift(report: &mut Report, built: &[Artifact]) {
     for artifact in built {
-        let Some(config_id) = &artifact.program_id else { continue };
+        let Some(config_id) = &artifact.program_id else {
+            continue;
+        };
         let keypair_path = artifact
             .so_path
             .with_file_name(format!("{}-keypair.json", artifact.name.replace('-', "_")));
-        let Ok(keypair_id) = keypair_pubkey(&keypair_path) else { continue };
+        let Ok(keypair_id) = keypair_pubkey(&keypair_path) else {
+            continue;
+        };
         if &keypair_id == config_id {
             report.ok(
                 "keypair-drift",
@@ -206,12 +231,16 @@ pub fn upgrade_preflight(
     project: &Project,
     built: &[Artifact],
     gate: &GateStatus,
-) -> Result<()> {
-    let loader = Pubkey::from_str(facts::UPGRADEABLE_LOADER)?;
+) {
+    let Ok(loader) = Pubkey::from_str(facts::UPGRADEABLE_LOADER) else {
+        return;
+    };
     let wallet = wallet_pubkey(project);
 
     for artifact in built {
-        let Some(program_id) = &artifact.program_id else { continue };
+        let Some(program_id) = &artifact.program_id else {
+            continue;
+        };
         let Ok(program_key) = Pubkey::from_str(program_id) else {
             report.warn(
                 "upgrade-preflight",
@@ -222,12 +251,27 @@ pub fn upgrade_preflight(
             continue;
         };
         let (programdata, _) = Pubkey::find_program_address(&[program_key.as_ref()], &loader);
-        let programdata_account = rpc.account(&programdata.to_string())?;
+        // One flaky RPC read must not kill the rest of the report.
+        let programdata_account = match rpc.account(&programdata.to_string()) {
+            Ok(account) => account,
+            Err(err) => {
+                report.warn(
+                    "upgrade-preflight",
+                    format!("{}: RPC read failed — check skipped", artifact.name),
+                    format!("{err:#}"),
+                    None,
+                );
+                continue;
+            }
+        };
         if let Some(account) = &programdata_account {
             if account.owner != facts::UPGRADEABLE_LOADER {
                 report.warn(
                     "upgrade-preflight",
-                    format!("{}: programdata owner is not the upgradeable loader", artifact.name),
+                    format!(
+                        "{}: programdata owner is not the upgradeable loader",
+                        artifact.name
+                    ),
                     format!("owner: {}", account.owner),
                     None,
                 );
@@ -255,7 +299,10 @@ pub fn upgrade_preflight(
             report.ok(
                 "upgrade-preflight",
                 format!("{}: fits existing programdata", artifact.name),
-                format!("binary {} bytes <= capacity {capacity} bytes — upgrade needs no extend", artifact.so_len),
+                format!(
+                    "binary {} bytes <= capacity {capacity} bytes — upgrade needs no extend",
+                    artifact.so_len
+                ),
             );
         } else {
             let delta = artifact.so_len - capacity;
@@ -312,13 +359,14 @@ pub fn upgrade_preflight(
             }
         }
     }
-    Ok(())
 }
 
 /// Buffers left behind by interrupted deploys hold real rent.
 pub fn stranded_buffers(report: &mut Report, rpc: &RpcClient, project: &Project) {
     for keypair_path in project.stranded_buffer_keypairs() {
-        let Ok(buffer) = keypair_pubkey(&keypair_path) else { continue };
+        let Ok(buffer) = keypair_pubkey(&keypair_path) else {
+            continue;
+        };
         let lamports = rpc.balance(&buffer).unwrap_or(0);
         if lamports > 0 {
             report.warn(
@@ -340,8 +388,12 @@ pub fn stranded_buffers(report: &mut Report, rpc: &RpcClient, project: &Project)
 
 /// Enough SOL for the largest pending buffer?
 pub fn balance(report: &mut Report, rpc: &RpcClient, project: &Project, built: &[Artifact]) {
-    let Some(wallet) = wallet_pubkey(project) else { return };
-    let Ok(lamports) = rpc.balance(&wallet) else { return };
+    let Some(wallet) = wallet_pubkey(project) else {
+        return;
+    };
+    let Ok(lamports) = rpc.balance(&wallet) else {
+        return;
+    };
 
     let largest = built.iter().map(|a| a.so_len).max().unwrap_or(0);
     if largest == 0 {
@@ -365,7 +417,10 @@ pub fn balance(report: &mut Report, rpc: &RpcClient, project: &Project, built: &
         report.ok(
             "balance",
             format!("wallet holds {:.3} SOL", lamports_to_sol(lamports)),
-            format!("covers the largest upgrade buffer (~{:.3} SOL, refunded)", lamports_to_sol(buffer_rent)),
+            format!(
+                "covers the largest upgrade buffer (~{:.3} SOL, refunded)",
+                lamports_to_sol(buffer_rent)
+            ),
         );
     }
 }

@@ -856,20 +856,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-compat"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "serde",
- "serde_json",
- "solana-pubkey",
- "toml",
- "ureq",
-]
-
-[[package]]
 name = "solana-define-syscall"
 version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,6 +903,20 @@ dependencies = [
  "sha2",
  "solana-define-syscall 4.0.1",
  "solana-hash",
+]
+
+[[package]]
+name = "sondir"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "serde",
+ "serde_json",
+ "solana-pubkey",
+ "toml",
+ "ureq",
 ]
 
 [[package]]

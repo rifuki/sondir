@@ -1,8 +1,8 @@
 [package]
-name = "solana-compat"
+name = "sondir"
 version = "0.1.0"
 edition = "2021"
-description = "Solana toolchain compatibility doctor — pre-flight checks that turn deploy-time surprises into actionable warnings"
+description = "sondir — the soil test before you build. Pre-flight checks and version compatibility for Solana toolchains."
 license = "MIT"
 
 [dependencies]
