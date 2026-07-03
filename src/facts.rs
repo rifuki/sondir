@@ -1,8 +1,96 @@
 //! Curated facts that no Cargo metadata or RPC schema expresses.
 //!
-//! This is the seed of the facts database. Each entry carries the consequence
-//! it implies so checks stay declarative. Verified 2026-07-02 against devnet /
-//! testnet / mainnet (`solana feature status`) and the raflux toolchain lab.
+//! The DATA lives in `facts/facts.toml` (embedded at build time, overridable at
+//! runtime with `--facts <path>`), so entries can be corrected or extended
+//! without a recompile — and eventually PR'd in a community facts repo. Logic
+//! that interprets the data stays here.
+
+use std::path::Path;
+use std::sync::OnceLock;
+
+use anyhow::{Context, Result};
+use serde::Deserialize;
+
+const EMBEDDED: &str = include_str!("../facts/facts.toml");
+
+static FACTS: OnceLock<FactsFile> = OnceLock::new();
+
+#[derive(Debug, Deserialize)]
+pub struct FactsFile {
+    #[serde(default)]
+    pub gates: Vec<FeatureGate>,
+    #[serde(default)]
+    pub conflicts: Vec<KnownConflict>,
+    #[serde(default)]
+    pub litesvm_runtimes: Vec<LitesvmRuntime>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FeatureGate {
+    pub address: String,
+    pub simd: String,
+    pub name: String,
+    pub consequence: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KnownConflict {
+    pub id: String,
+    pub a: String,
+    pub b: String,
+    pub why: String,
+    pub fix: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LitesvmRuntime {
+    pub prefix: String,
+    pub arch_ok: Vec<u32>,
+    pub note: String,
+}
+
+/// Load the facts database once: an explicit `--facts` path, or the embedded
+/// copy. Accessors fall back to the embedded copy if load was never called
+/// (tests, library use).
+pub fn load(override_path: Option<&Path>) -> Result<()> {
+    let parsed = match override_path {
+        Some(path) => {
+            let raw = std::fs::read_to_string(path)
+                .with_context(|| format!("cannot read facts file {}", path.display()))?;
+            toml::from_str(&raw).context("facts file did not parse")?
+        }
+        None => embedded(),
+    };
+    let _ = FACTS.set(parsed);
+    Ok(())
+}
+
+fn embedded() -> FactsFile {
+    toml::from_str(EMBEDDED).expect("embedded facts.toml must parse (validated by tests)")
+}
+
+fn facts() -> &'static FactsFile {
+    FACTS.get_or_init(embedded)
+}
+
+pub fn gates() -> &'static [FeatureGate] {
+    &facts().gates
+}
+
+pub fn conflicts() -> &'static [KnownConflict] {
+    &facts().conflicts
+}
+
+pub fn conflict(id: &str) -> Option<&'static KnownConflict> {
+    facts().conflicts.iter().find(|c| c.id == id)
+}
+
+pub fn litesvm_runtime(version: &str) -> Option<&'static LitesvmRuntime> {
+    facts()
+        .litesvm_runtimes
+        .iter()
+        .find(|runtime| version.starts_with(&runtime.prefix))
+}
 
 /// BPF upgradeable loader (loader-v3) program id.
 pub const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
@@ -17,44 +105,16 @@ pub const BUFFER_METADATA_LEN: u64 = 37;
 /// SIMD-0431: Loader-v3 minimum extend size, in bytes.
 pub const MIN_EXTEND_BYTES: u64 = 10_240;
 
-pub struct FeatureGate {
-    pub address: &'static str,
-    pub simd: &'static str,
-    pub name: &'static str,
-    /// What an ACTIVE gate means for a deployer.
-    pub consequence: &'static str,
-}
-
-pub const GATES: &[FeatureGate] = &[
-    FeatureGate {
-        address: "5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC",
-        simd: "SIMD-0178/0189/0377",
-        name: "SBPFv3 deployment and execution",
-        consequence: "arch v3 .so files are deployable/executable on this cluster",
-    },
-    FeatureGate {
-        address: "YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5",
-        simd: "SIMD-0431",
-        name: "Loader-v3 minimum extend program size",
-        consequence: "ExtendProgram must add >= 10240 bytes (or extend to max); small auto-extends on upgrade FAIL",
-    },
-    FeatureGate {
-        address: "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g",
-        simd: "SIMD-0500",
-        name: "Disable deployment of SBPF v0, v1 and v2 programs",
-        consequence: "only arch v3 .so files remain deployable",
-    },
-];
-
-/// SBPF arch flag (ELF e_flags word at byte offset 48) semantics per cluster.
+/// SBPF arch flag (ELF e_flags word at byte offset 48) vs cluster deploy rules.
 ///
-/// v1/v2 were never enabled for cluster deployment: they exist only for local
-/// runtimes (litesvm/mollusk).
+/// EMPIRICAL (canary c15, devnet 2026-07-03): with the SBPFv3 gate active the
+/// e_flags direct mapping accepts v1/v2 deploys too — the old "v1/v2 were never
+/// enabled" belief is obsolete.
 pub fn arch_deployable(
     flag: u32,
     sbpf_v3_active: bool,
     simd_0500_active: bool,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     match flag {
         0 => {
             if simd_0500_active {
@@ -69,9 +129,6 @@ pub fn arch_deployable(
                     "SBPF v{flag} deploys are disabled on this cluster (SIMD-0500 active) — build with --arch v3"
                 ))
             } else if sbpf_v3_active {
-                // EMPIRICAL (canary c15, devnet 2026-07-03): with the SBPFv3
-                // gate active the e_flags direct mapping accepts v1/v2 deploys
-                // too — the old "v1/v2 were never enabled" belief is obsolete.
                 Ok(())
             } else {
                 Err(format!(
@@ -90,60 +147,18 @@ pub fn arch_deployable(
     }
 }
 
-/// What SBPF arch a given litesvm crate version can execute.
-///
-/// 0.12.x embeds the Agave 3.1.14 runtime: executes v1/v2; chokes on v0 emitted
-/// by platform-tools >= v1.54 ("Access violation ... 0x8") and on v3.
-/// 0.13.x embeds Agave 4.0: executes v3 (but see the MagicBlock conflict fact).
-pub struct LitesvmRuntime {
-    pub arch_ok: &'static [u32],
-    pub note: &'static str,
-}
-
-pub fn litesvm_runtime(version: &str) -> Option<LitesvmRuntime> {
-    if version.starts_with("0.12.") {
-        Some(LitesvmRuntime {
-            arch_ok: &[1, 2],
-            note: "litesvm 0.12 = Agave 3.1.14 runtime: test .so must be --arch v1 (or v2); v0 from platform-tools >=1.54 and v3 both fail",
-        })
-    } else if version.starts_with("0.13.") {
-        Some(LitesvmRuntime {
-            arch_ok: &[3],
-            note: "litesvm 0.13 = Agave 4.0 runtime (SBPF v3). NOTE: its solana-instruction =3.2.0 exact pin conflicts with MagicBlock vrf-sdk (needs ^3.4) — unresolvable in one graph as of 2026-07-02",
-        })
-    } else {
-        None
-    }
-}
-
-/// Known unresolvable dependency pairs (same-major requirement conflicts).
-pub struct KnownConflict {
-    pub a: &'static str,
-    pub b: &'static str,
-    pub why: &'static str,
-}
-
-pub const KNOWN_CONFLICTS: &[KnownConflict] = &[
-    KnownConflict {
-        a: "litesvm >=0.13",
-        b: "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3",
-        why: "litesvm 0.13.x pins solana-instruction =3.2.0 (Agave 4.0 wave) while the MagicBlock chain requires ^3.4 (Agave 4.1 wave); cargo cannot unify same-major exact vs caret. Unlocks when litesvm ships an Agave-4.1-wave release. NOTE: `anchor init` (CLI 1.1.2) templates ship litesvm 0.13.1, so fresh-project + MagicBlock hits this immediately (canary c05).",
-    },
-    KnownConflict {
-        a: "litesvm >=0.13",
-        b: "solana-instructions-sysvar >=3.0.1",
-        why: "solana-instructions-sysvar 3.0.1 requires solana-instruction ^3.4.0; litesvm 0.13.x pins =3.2.0 (canary c06). Pin solana-instructions-sysvar to =3.0.0 (rides ^3.0.0) or drop litesvm to 0.12.x.",
-    },
-    KnownConflict {
-        a: "solana-program 1.x (legacy)",
-        b: "modern anchor workspace (solana-* 3.x wave)",
-        why: "the legacy 1.x line drags curve25519-dalek 3.2.1 whose zeroize pin clashes with the modern tree (canary c19: `failed to select a version for zeroize`). Remove the direct solana-program dep and use anchor_lang re-exports (or granular solana-* 3.x crates).",
-    },
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_facts_parse_and_are_complete() {
+        let facts = embedded();
+        assert_eq!(facts.gates.len(), 3);
+        assert_eq!(facts.conflicts.len(), 3);
+        assert_eq!(facts.litesvm_runtimes.len(), 2);
+        assert!(conflict("litesvm-magicblock").is_some());
+    }
 
     #[test]
     fn v0_is_deployable_until_simd_0500_activates() {
@@ -157,7 +172,6 @@ mod tests {
 
     #[test]
     fn v1_v2_deployable_only_under_the_v3_gate() {
-        // empirically corrected by canary c15 (devnet accepted arch v1)
         assert!(arch_deployable(1, true, false).is_ok());
         assert!(arch_deployable(2, true, false).is_ok());
         assert!(arch_deployable(1, false, false).is_err());
@@ -173,13 +187,13 @@ mod tests {
     #[test]
     fn litesvm_012_executes_v1_v2_only() {
         let runtime = litesvm_runtime("0.12.0").expect("known version");
-        assert_eq!(runtime.arch_ok, &[1, 2]);
+        assert_eq!(runtime.arch_ok, vec![1, 2]);
     }
 
     #[test]
     fn litesvm_013_executes_v3() {
         let runtime = litesvm_runtime("0.13.1").expect("known version");
-        assert_eq!(runtime.arch_ok, &[3]);
+        assert_eq!(runtime.arch_ok, vec![3]);
     }
 
     #[test]

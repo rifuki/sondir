@@ -16,7 +16,15 @@ front from local files + RPC reads. `sondir` knows them now.
 ## Usage
 
 ```bash
+# pre-flight an Anchor workspace
 sondir doctor [--path <anchor-workspace>] [--url <rpc>] [--json] [--offline]
+
+# find a mutually-compatible version set for the deps you want
+sondir resolve anchor litesvm magicblock        # -> litesvm 0.12.0 + why, in seconds
+sondir resolve --list                           # known aliases (raw crate names work too)
+
+# both accept a custom facts database
+sondir --facts my-facts.toml doctor ...
 ```
 
 - `--url` (or `$SONDIR_RPC`) overrides the RPC; defaults from Anchor.toml
@@ -50,6 +58,21 @@ Because the error arrives *after* the damage: SIMD-0431 rejects the extend **aft
 on-chain; the IDL error names neither the metadata account nor the fix. Every check above
 is derived from a failure that actually happened and is fully predictable from
 `Cargo.lock` + `Anchor.toml` + `target/deploy` + a handful of RPC reads.
+
+## resolve
+
+`resolve` synthesizes a throwaway manifest with your selection at `*` and lets cargo's own
+resolver do the search, then reads the answer from the lockfile: exact versions, "pivot"
+crates that reveal which Agave interface wave you landed on, and runtime notes (e.g. which
+SBPF arch your litesvm needs). When resolution fails it retries with facts-driven remedies
+("pin litesvm <0.13") so the answer is *works if you pin X*, not just *conflict*.
+
+## Facts database
+
+The knowledge that no Cargo metadata expresses lives in `facts/facts.toml` (feature gates
+with consequences, known conflicts with evidence + fixes, litesvm runtime arch tables).
+It ships embedded in the binary; override with `--facts <path>`. Every entry cites its
+evidence (canary id + date) so it can be re-verified or retired.
 
 ## Canary matrix
 

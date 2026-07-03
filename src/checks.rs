@@ -153,16 +153,15 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
 
     let mut conflict_hit = false;
     if litesvm_013 && has_magicblock_vrf {
-        let conflict = &facts::KNOWN_CONFLICTS[0];
-        report.fail(
-            "dep-conflict",
-            format!("{} × {}", conflict.a, conflict.b),
-            conflict.why,
-            Some(
-                "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release".into(),
-            ),
-        );
-        conflict_hit = true;
+        if let Some(conflict) = facts::conflict("litesvm-magicblock") {
+            report.fail(
+                "dep-conflict",
+                format!("{} × {}", conflict.a, conflict.b),
+                conflict.why.clone(),
+                Some(conflict.fix.clone()),
+            );
+            conflict_hit = true;
+        }
     }
 
     // litesvm 0.13 × instructions-sysvar >=3.0.1 (canary c06). `=3.0.0` is the
@@ -170,16 +169,15 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
     if litesvm_013 {
         if let Some(sysvar) = declared.get("solana-instructions-sysvar") {
             if sysvar != "=3.0.0" {
-                let conflict = &facts::KNOWN_CONFLICTS[1];
-                report.fail(
-                    "dep-conflict",
-                    format!("{} × {}", conflict.a, conflict.b),
-                    conflict.why,
-                    Some(
-                        "pin solana-instructions-sysvar = \"=3.0.0\" or use litesvm 0.12.x".into(),
-                    ),
-                );
-                conflict_hit = true;
+                if let Some(conflict) = facts::conflict("litesvm-instructions-sysvar") {
+                    report.fail(
+                        "dep-conflict",
+                        format!("{} × {}", conflict.a, conflict.b),
+                        conflict.why.clone(),
+                        Some(conflict.fix.clone()),
+                    );
+                    conflict_hit = true;
+                }
             }
         }
     }
@@ -190,14 +188,15 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
         .or_else(|| project.locked.get("solana-program"))
         .is_some_and(|v| v.trim_start_matches(['^', '=', '~']).starts_with("1."));
     if legacy_solana_program {
-        let conflict = &facts::KNOWN_CONFLICTS[2];
-        report.fail(
-            "dep-conflict",
-            format!("{} × {}", conflict.a, conflict.b),
-            conflict.why,
-            Some("remove the direct solana-program dependency; use anchor_lang::solana_program re-exports".into()),
-        );
-        conflict_hit = true;
+        if let Some(conflict) = facts::conflict("legacy-solana-program") {
+            report.fail(
+                "dep-conflict",
+                format!("{} × {}", conflict.a, conflict.b),
+                conflict.why.clone(),
+                Some(conflict.fix.clone()),
+            );
+            conflict_hit = true;
+        }
     }
 
     if !conflict_hit {
@@ -207,7 +206,7 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
                 report.info(
                     "litesvm-runtime",
                     format!("litesvm {version}"),
-                    runtime.note,
+                    runtime.note.clone(),
                 );
             }
         }
@@ -229,8 +228,8 @@ pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
         simd_0500: false,
     };
     let mut failures = 0usize;
-    for gate in facts::GATES {
-        let active = match rpc.feature_active(gate.address) {
+    for gate in facts::gates() {
+        let active = match rpc.feature_active(&gate.address) {
             Ok(state) => state.unwrap_or(false),
             Err(err) => {
                 failures += 1;
@@ -243,7 +242,7 @@ pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
                 continue;
             }
         };
-        match gate.simd {
+        match gate.simd.as_str() {
             "SIMD-0178/0189/0377" => status.sbpf_v3 = active,
             "SIMD-0431" => status.simd_0431 = active,
             "SIMD-0500" => status.simd_0500 = active,
@@ -254,13 +253,13 @@ pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
             "gate",
             format!("{} {} — {state}", gate.simd, gate.name),
             if active {
-                gate.consequence
+                gate.consequence.clone()
             } else {
-                "no effect yet"
+                "no effect yet".to_owned()
             },
         );
     }
-    if failures == facts::GATES.len() {
+    if failures == facts::gates().len() {
         anyhow::bail!("all feature-gate reads failed — RPC unreachable");
     }
     Ok(status)

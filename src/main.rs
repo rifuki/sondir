@@ -24,6 +24,9 @@ use crate::rpc::RpcClient;
 #[derive(Parser)]
 #[command(name = "sondir", version, about)]
 struct Cli {
+    /// Override the embedded facts database with a facts.toml of your own.
+    #[arg(long, global = true)]
+    facts: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -60,6 +63,10 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Err(err) = facts::load(cli.facts.as_deref()) {
+        eprintln!("error: {err:#}");
+        return ExitCode::from(2);
+    }
     match run(cli) {
         Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
         Err(err) => {
