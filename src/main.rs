@@ -8,6 +8,7 @@ mod checks;
 mod facts;
 mod project;
 mod report;
+mod resolve;
 mod rpc;
 
 use std::path::PathBuf;
@@ -44,8 +45,17 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
-    /// (roadmap) Resolve a compatible version set for a selection of ecosystem deps.
-    Resolve,
+    /// Find a mutually-compatible version set for a selection of ecosystem deps.
+    Resolve {
+        /// Ecosystem aliases or raw crate names (try: anchor litesvm magicblock). See --list.
+        names: Vec<String>,
+        /// List the known aliases.
+        #[arg(long)]
+        list: bool,
+        /// Emit the resolution as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -67,11 +77,12 @@ fn run(cli: Cli) -> Result<i32> {
             json,
             offline,
         } => doctor(&path, url.as_deref(), json, offline),
-        Command::Resolve => {
-            println!(
-                "resolve is on the roadmap: multi-select ecosystem deps -> synthetic manifest -> cargo resolver -> explained version set.\nFor now see the curated facts in this binary (doctor) and the raflux toolchain matrix doc."
-            );
-            Ok(0)
+        Command::Resolve { names, list, json } => {
+            if list || names.is_empty() {
+                resolve::list_aliases();
+                return Ok(0);
+            }
+            resolve::run(&names, json)
         }
     }
 }
