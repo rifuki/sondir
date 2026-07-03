@@ -493,6 +493,34 @@ pub fn upgrade_preflight(
             }
         }
 
+        // Deployed drift: is what's on chain the same bytes as the local build?
+        // Programdata = 45-byte metadata + program bytes, zero-padded by extends;
+        // compare with trailing zeros stripped on both sides (solana-verify's rule).
+        if let Some(on_chain) = account.data.get(facts::PROGRAMDATA_METADATA_LEN as usize..) {
+            if let Ok(local) = std::fs::read(&artifact.so_path) {
+                if strip_trailing_zeros(on_chain) == strip_trailing_zeros(&local) {
+                    report.ok(
+                        "deployed-drift",
+                        format!("{}: on-chain program matches local build", artifact.name),
+                        "deployed bytes == target/deploy .so (trailing zeros ignored)",
+                    );
+                } else {
+                    report.info(
+                        "deployed-drift",
+                        format!(
+                            "{}: on-chain program DIFFERS from local build",
+                            artifact.name
+                        ),
+                        format!(
+                            "deployed {} bytes vs local {} bytes (both trimmed) — an upgrade (or a bare `anchor test` on this cluster) would replace the deployed program",
+                            strip_trailing_zeros(on_chain).len(),
+                            strip_trailing_zeros(&local).len(),
+                        ),
+                    );
+                }
+            }
+        }
+
         // Upgrade authority: bincode ProgramData = tag(4) + slot(8) + Option<Pubkey>(1+32).
         if let (Some(wallet), Some(1)) = (&wallet, account.data.get(12).copied()) {
             if let Some(authority_bytes) = account.data.get(13..45) {
@@ -637,4 +665,35 @@ fn wallet_pubkey(project: &Project) -> Option<String> {
     // skipping the balance/authority checks without a trace.
     let wallet_path = project.wallet_path()?;
     keypair_pubkey(&wallet_path).ok()
+}
+
+/// Programdata is zero-padded past the program's end by extends, and a .so can
+/// itself end in zeros — equality must ignore both tails.
+fn strip_trailing_zeros(bytes: &[u8]) -> &[u8] {
+    let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    &bytes[..end]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_trailing_zeros_ignores_padding_but_keeps_interior_zeros() {
+        assert_eq!(strip_trailing_zeros(&[1, 0, 2, 0, 0]), &[1, 0, 2]);
+        assert_eq!(strip_trailing_zeros(&[0, 0, 0]), &[] as &[u8]);
+        assert_eq!(strip_trailing_zeros(&[]), &[] as &[u8]);
+        assert_eq!(strip_trailing_zeros(&[7]), &[7]);
+    }
+
+    #[test]
+    fn padded_deploy_equals_local_build_after_stripping() {
+        let local = [0x7f, b'E', b'L', b'F', 9, 9, 0];
+        let mut deployed = local.to_vec();
+        deployed.extend_from_slice(&[0; 10240]); // post-extend padding
+        assert_eq!(
+            strip_trailing_zeros(&deployed),
+            strip_trailing_zeros(&local)
+        );
+    }
 }
