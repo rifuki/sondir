@@ -6,6 +6,7 @@
 
 mod checks;
 mod facts;
+mod mcp;
 mod project;
 mod report;
 mod resolve;
@@ -69,6 +70,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Run as an MCP server (stdio) exposing doctor/resolve/watch to AI agents.
+    Mcp,
 }
 
 fn main() -> ExitCode {
@@ -107,10 +110,18 @@ fn run(cli: Cli) -> Result<i32> {
             }
             resolve::run(&names, json)
         }
+        Command::Mcp => mcp::serve(),
     }
 }
 
 fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) -> Result<i32> {
+    let report = run_doctor(path, url, offline)?;
+    report.print(json)
+}
+
+/// Run every pre-flight check and return the report without printing (shared by
+/// the CLI `doctor` command and the MCP server).
+pub fn run_doctor(path: &std::path::Path, url: Option<&str>, offline: bool) -> Result<Report> {
     let project = Project::load(path)?;
     let mut report = Report::default();
 
@@ -133,7 +144,7 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
             simd_0500: false,
         };
         checks::artifacts(&mut report, &project, &built, &gate);
-        return report.print(json);
+        return Ok(report);
     }
 
     let rpc = RpcClient::new(project.rpc_url(url));
@@ -163,5 +174,5 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
         }
     }
 
-    report.print(json)
+    Ok(report)
 }

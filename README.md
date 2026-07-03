@@ -23,7 +23,13 @@ sondir doctor [--path <anchor-workspace>] [--url <rpc>] [--json] [--offline]
 sondir resolve anchor litesvm magicblock        # -> litesvm 0.12.0 + why, in seconds
 sondir resolve --list                           # known aliases (raw crate names work too)
 
-# both accept a custom facts database
+# has an upstream release/gate unlocked a held-back upgrade yet? (cron/CI-friendly)
+sondir watch [--url <rpc>] [--json]             # exit 3 when a trigger fired
+
+# run as an MCP server so an AI agent can call doctor/resolve/watch
+sondir mcp                                       # stdio, newline-delimited JSON-RPC
+
+# any command accepts a custom facts database
 sondir --facts my-facts.toml doctor ...
 ```
 
@@ -33,7 +39,7 @@ sondir --facts my-facts.toml doctor ...
 - Output is ANSI-free automatically when piped (CI logs stay clean).
 - `--offline` skips RPC (local checks only).
 
-## Checks (v0.2)
+## doctor checks
 
 | Code | Catches |
 |---|---|
@@ -80,14 +86,29 @@ evidence (canary id + date) so it can be re-verified or retired.
 sondir's facts empirically (resolve → build → test → devnet deploy → upgrade). Results in
 `canary/results.md`; each confirmed behavior feeds back into `src/facts.rs`.
 
+## watch
+
+`watch` checks whether an upstream event has unlocked an upgrade the canary campaign
+told us to hold back: litesvm shipping its Agave-4.1 wave (crates.io — `solana-instruction`
+requirement leaves the `=3.2.0` pin), SIMD-0500 activating on the target cluster (v0–v2
+deploys die), or anchor crossing to the pubkey-4 interface wave. Each trigger prints
+`FIRED`/`waiting` with what to do when it fires. Exit code `3` when anything fired, so a cron
+or CI job can alert on it (`--json` for machine parsing).
+
+## MCP server
+
+`sondir mcp` speaks the Model Context Protocol over stdio (newline-delimited JSON-RPC 2.0),
+exposing three tools to an AI agent: `sondir_doctor`, `sondir_resolve`, `sondir_watch`. Each
+reuses the exact same code path as the CLI, so an agent gets identical results. Point any MCP
+client at the `sondir mcp` command — no network server, no ports.
+
 ## Roadmap
 
-- `resolve` — multi-select ecosystem deps (litesvm, MagicBlock, Light Protocol, Metaplex, …)
-  → synthetic manifest → cargo resolver → explained compatible version set.
-- Facts DB externalized (rustsec-style: every entry carries evidence + verified date).
-- `watch` — notify when an upstream release unlocks held-back upgrades
-  (e.g. litesvm's Agave-4.1 wave).
-- MCP server exposing `doctor`/`resolve` to AI agents.
+- ~~`resolve` — multi-select ecosystem deps → cargo resolver → explained compatible set.~~ ✅
+- ~~Facts DB externalized (rustsec-style: every entry carries evidence + verified date).~~ ✅
+- ~~`watch` — notify when an upstream release/gate unlocks held-back upgrades.~~ ✅
+- ~~MCP server exposing `doctor`/`resolve`/`watch` to AI agents.~~ ✅
+- Publish to crates.io / make the repo public (pending owner decision).
 
 ## Design notes
 

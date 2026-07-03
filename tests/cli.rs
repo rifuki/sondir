@@ -1,8 +1,9 @@
 //! End-to-end CLI behavior — exercised against the real binary.
 
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_sondir"))
@@ -83,4 +84,52 @@ fn garbage_so_is_flagged_not_an_elf() {
         });
     assert!(has_elf_fail, "findings: {parsed}");
     assert_eq!(out.status.code(), Some(1), "fail finding must exit 1");
+}
+
+#[test]
+fn mcp_server_handshakes_and_lists_tools() {
+    // Drive the stdio MCP server: initialize, a notification (no reply), then
+    // tools/list. Offline — no RPC or cargo calls in this script.
+    let mut child = bin()
+        .arg("mcp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn sondir mcp");
+    let script = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        "\n",
+    );
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(script.as_bytes())
+        .expect("write script");
+    let out = child.wait_with_output().expect("wait mcp");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    // One JSON object per line; the notification produced no line, so exactly two.
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 2, "expected 2 responses, got: {stdout}");
+
+    let init: serde_json::Value = serde_json::from_str(lines[0]).expect("init json");
+    assert_eq!(init["id"], 1);
+    assert_eq!(init["result"]["serverInfo"]["name"], "sondir");
+
+    let list: serde_json::Value = serde_json::from_str(lines[1]).expect("list json");
+    assert_eq!(list["id"], 2);
+    let names: Vec<&str> = list["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(names.contains(&"sondir_doctor"), "tools: {names:?}");
+    assert!(names.contains(&"sondir_resolve"), "tools: {names:?}");
+    assert!(names.contains(&"sondir_watch"), "tools: {names:?}");
 }
