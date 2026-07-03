@@ -215,14 +215,34 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
 }
 
 /// Cluster feature gates that change deploy semantics.
+///
+/// One flaky gate read no longer aborts everything (audit follow-up): the
+/// failed gate falls back to a CONSERVATIVE assumption (v3 enabled, min-extend
+/// enforced, SIMD-0500 not yet active) with a warn. Only when EVERY read fails
+/// do we bail so main can skip on-chain checks entirely.
 pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
+    // Conservative defaults: assuming SIMD-0431 active only over-recommends a
+    // harmless manual extend; assuming SBPFv3 enabled matches every cluster today.
     let mut status = GateStatus {
-        sbpf_v3: false,
-        simd_0431: false,
+        sbpf_v3: true,
+        simd_0431: true,
         simd_0500: false,
     };
+    let mut failures = 0usize;
     for gate in facts::GATES {
-        let active = rpc.feature_active(gate.address)?.unwrap_or(false);
+        let active = match rpc.feature_active(gate.address) {
+            Ok(state) => state.unwrap_or(false),
+            Err(err) => {
+                failures += 1;
+                report.warn(
+                    "gate",
+                    format!("{} status unknown (RPC read failed)", gate.simd),
+                    format!("{err:#}\nassuming the conservative default"),
+                    None,
+                );
+                continue;
+            }
+        };
         match gate.simd {
             "SIMD-0178/0189/0377" => status.sbpf_v3 = active,
             "SIMD-0431" => status.simd_0431 = active,
@@ -239,6 +259,9 @@ pub fn gates(report: &mut Report, rpc: &RpcClient) -> Result<GateStatus> {
                 "no effect yet"
             },
         );
+    }
+    if failures == facts::GATES.len() {
+        anyhow::bail!("all feature-gate reads failed — RPC unreachable");
     }
     Ok(status)
 }
