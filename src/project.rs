@@ -227,7 +227,7 @@ fn read_lockfile(path: &Path) -> Result<BTreeMap<String, String>> {
     parse_lockfile(&fs::read_to_string(path)?)
 }
 
-fn parse_lockfile(raw: &str) -> Result<BTreeMap<String, String>> {
+pub(crate) fn parse_lockfile(raw: &str) -> Result<BTreeMap<String, String>> {
     #[derive(Deserialize)]
     struct Lock {
         #[serde(default)]
