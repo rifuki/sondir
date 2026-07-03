@@ -1,0 +1,55 @@
+# sondir facts database — the knowledge no Cargo metadata or RPC schema expresses.
+#
+# Every entry carries evidence (canary id / date) so it can be re-verified or
+# retired. Override at runtime with `sondir --facts <path>` — this file ships
+# embedded in the binary as the default. Destined for its own community repo
+# (rustsec-style) once sondir goes public.
+
+[[gates]]
+address = "5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC"
+simd = "SIMD-0178/0189/0377"
+name = "SBPFv3 deployment and execution"
+consequence = "arch v3 .so files are deployable/executable on this cluster; with this gate the e_flags direct mapping also accepts v1/v2 deploys (canary c15, devnet 2026-07-03)"
+
+[[gates]]
+address = "YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5"
+simd = "SIMD-0431"
+name = "Loader-v3 minimum extend program size"
+consequence = "ExtendProgram must add >= 10240 bytes (or extend to max); small auto-extends on upgrade FAIL after the buffer is written"
+
+[[gates]]
+address = "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g"
+simd = "SIMD-0500"
+name = "Disable deployment of SBPF v0, v1 and v2 programs"
+consequence = "only arch v3 .so files remain deployable"
+
+[[conflicts]]
+id = "litesvm-magicblock"
+a = "litesvm >=0.13"
+b = "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3"
+why = "litesvm 0.13.x pins solana-instruction =3.2.0 (Agave 4.0 wave) while the MagicBlock chain requires ^3.4 (Agave 4.1 wave); cargo cannot unify same-major exact vs caret. Unlocks when litesvm ships an Agave-4.1-wave release. NOTE: `anchor init` (CLI 1.1.2) templates ship litesvm 0.13.1, so fresh-project + MagicBlock hits this immediately (canary c05)."
+fix = "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release"
+
+[[conflicts]]
+id = "litesvm-instructions-sysvar"
+a = "litesvm >=0.13"
+b = "solana-instructions-sysvar >=3.0.1"
+why = "solana-instructions-sysvar 3.0.1 requires solana-instruction ^3.4.0; litesvm 0.13.x pins =3.2.0 (canary c06). Pin solana-instructions-sysvar to =3.0.0 (rides ^3.0.0) or drop litesvm to 0.12.x."
+fix = "pin solana-instructions-sysvar = \"=3.0.0\" or use litesvm 0.12.x"
+
+[[conflicts]]
+id = "legacy-solana-program"
+a = "solana-program 1.x (legacy)"
+b = "modern anchor workspace (solana-* 3.x wave)"
+why = "the legacy 1.x line drags curve25519-dalek 3.2.1 whose zeroize pin clashes with the modern tree (canary c19: `failed to select a version for zeroize`). Remove the direct solana-program dep and use anchor_lang re-exports (or granular solana-* 3.x crates)."
+fix = "remove the direct solana-program dependency; use anchor_lang::solana_program re-exports"
+
+[[litesvm_runtimes]]
+prefix = "0.12."
+arch_ok = [1, 2]
+note = "litesvm 0.12 = Agave 3.1.14 runtime: test .so must be --arch v1 (or v2); v0 from platform-tools >=1.54 and v3 both fail"
+
+[[litesvm_runtimes]]
+prefix = "0.13."
+arch_ok = [3]
+note = "litesvm 0.13 = Agave 4.0 runtime (SBPF v3). NOTE: its solana-instruction =3.2.0 exact pin conflicts with MagicBlock vrf-sdk (needs ^3.4) — unresolvable in one graph as of 2026-07-02"

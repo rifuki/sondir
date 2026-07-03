@@ -389,14 +389,14 @@ fn report_failure(
         })
         .take(6)
         .collect();
-    let known: Vec<&str> = facts::KNOWN_CONFLICTS
+    let known: Vec<&str> = facts::conflicts()
         .iter()
         .filter(|conflict| {
             requested
                 .iter()
                 .any(|r| conflict.a.contains(r.as_str()) || conflict.b.contains(r.as_str()))
         })
-        .map(|conflict| conflict.why)
+        .map(|conflict| conflict.why.as_str())
         .collect();
 
     if json {
