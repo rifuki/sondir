@@ -1,6 +1,6 @@
 [package]
 name = "sondir"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "sondir — the soil test before you build. Pre-flight checks and version compatibility for Solana toolchains."
 license = "MIT"

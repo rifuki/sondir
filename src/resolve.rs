@@ -134,6 +134,24 @@ pub struct AppliedPin {
     pub why: String,
 }
 
+/// What `resolve()` concluded — a compatible set, or an explained conflict.
+/// Untagged so the JSON shapes stay identical to the pre-split `--json` output.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum Outcome {
+    Resolved(Resolution),
+    Failed(Failure),
+}
+
+#[derive(Serialize)]
+pub struct Failure {
+    pub error: String,
+    pub requested: Vec<String>,
+    pub applied_pins: Vec<AppliedPin>,
+    pub cargo: Vec<String>,
+    pub known_conflicts: Vec<String>,
+}
+
 /// A facts-driven retry: when resolution fails and the trigger matches, pin
 /// `krate` to `req` and try again.
 struct Remedy {
@@ -180,6 +198,20 @@ pub fn list_aliases() {
 }
 
 pub fn run(names: &[String], json: bool) -> Result<i32> {
+    match resolve(names)? {
+        Outcome::Resolved(resolution) => {
+            print_resolution(&resolution, json)?;
+            Ok(0)
+        }
+        Outcome::Failed(failure) => {
+            print_failure(&failure, json)?;
+            Ok(1)
+        }
+    }
+}
+
+/// Resolution without printing (shared by the CLI and the MCP server).
+pub fn resolve(names: &[String]) -> Result<Outcome> {
     let mut selection = build_selection(names);
     let requested: Vec<String> = selection.iter().map(|s| s.krate.clone()).collect();
     let mut applied: Vec<AppliedPin> = Vec::new();
@@ -198,9 +230,8 @@ pub fn run(names: &[String], json: bool) -> Result<i32> {
             let raw = fs::read_to_string(workdir.join("Cargo.lock"))?;
             let locked = parse_lockfile(&raw)?;
             let resolution = summarize(&requested, &applied, &locked, attempt);
-            print_resolution(&resolution, json)?;
             let _ = fs::remove_dir_all(&workdir);
-            return Ok(0);
+            return Ok(Outcome::Resolved(resolution));
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -217,11 +248,15 @@ pub fn run(names: &[String], json: bool) -> Result<i32> {
 
         // Out of remedies: report the conflict with whatever facts explain it.
         let _ = fs::remove_dir_all(&workdir);
-        return report_failure(&requested, &applied, &stderr, json);
+        return Ok(Outcome::Failed(build_failure(&requested, applied, &stderr)));
     }
 
     let _ = fs::remove_dir_all(&workdir);
-    report_failure(&requested, &applied, "remedy loop exhausted", json)
+    Ok(Outcome::Failed(build_failure(
+        &requested,
+        applied,
+        "remedy loop exhausted",
+    )))
 }
 
 fn build_selection(names: &[String]) -> Vec<Selection> {
@@ -373,13 +408,8 @@ fn print_resolution(resolution: &Resolution, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn report_failure(
-    requested: &[String],
-    applied: &[AppliedPin],
-    stderr: &str,
-    json: bool,
-) -> Result<i32> {
-    let excerpt: Vec<&str> = stderr
+fn build_failure(requested: &[String], applied: Vec<AppliedPin>, stderr: &str) -> Failure {
+    let cargo: Vec<String> = stderr
         .lines()
         .filter(|line| {
             line.contains("failed to select")
@@ -388,47 +418,51 @@ fn report_failure(
                 || line.contains("which satisfies")
         })
         .take(6)
+        .map(str::to_owned)
         .collect();
-    let known: Vec<&str> = facts::conflicts()
+    let known_conflicts: Vec<String> = facts::conflicts()
         .iter()
         .filter(|conflict| {
             requested
                 .iter()
                 .any(|r| conflict.a.contains(r.as_str()) || conflict.b.contains(r.as_str()))
         })
-        .map(|conflict| conflict.why.as_str())
+        .map(|conflict| conflict.why.clone())
         .collect();
+    Failure {
+        error: "no compatible set found".into(),
+        requested: requested.to_vec(),
+        applied_pins: applied,
+        cargo,
+        known_conflicts,
+    }
+}
 
+fn print_failure(failure: &Failure, json: bool) -> Result<()> {
     if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "error": "no compatible set found",
-                "requested": requested,
-                "applied_pins": applied,
-                "cargo": excerpt,
-                "known_conflicts": known,
-            })
-        );
-    } else {
-        println!("✗ no compatible set found for: {}", requested.join(", "));
-        if !applied.is_empty() {
-            println!("\npins already tried:");
-            for pin in applied {
-                println!("  {} = \"{}\"", pin.krate, pin.req);
-            }
-        }
-        if !excerpt.is_empty() {
-            println!("\ncargo says:");
-            for line in &excerpt {
-                println!("  {}", line.trim());
-            }
-        }
-        for why in known {
-            println!("\nknown conflict: {why}");
+        println!("{}", serde_json::to_string_pretty(failure)?);
+        return Ok(());
+    }
+    println!(
+        "✗ no compatible set found for: {}",
+        failure.requested.join(", ")
+    );
+    if !failure.applied_pins.is_empty() {
+        println!("\npins already tried:");
+        for pin in &failure.applied_pins {
+            println!("  {} = \"{}\"", pin.krate, pin.req);
         }
     }
-    Ok(1)
+    if !failure.cargo.is_empty() {
+        println!("\ncargo says:");
+        for line in &failure.cargo {
+            println!("  {}", line.trim());
+        }
+    }
+    for why in &failure.known_conflicts {
+        println!("\nknown conflict: {why}");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

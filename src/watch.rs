@@ -21,7 +21,8 @@ pub struct Trigger {
     pub then: &'static str,
 }
 
-pub fn run(rpc_url: &str, json: bool) -> Result<i32> {
+/// Evaluate all triggers without printing (shared by the CLI and the MCP server).
+pub fn collect(rpc_url: &str) -> Vec<Trigger> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(15))
         .build();
@@ -46,6 +47,11 @@ pub fn run(rpc_url: &str, json: bool) -> Result<i32> {
         then: ANCHOR_THEN,
     }));
 
+    triggers
+}
+
+pub fn run(rpc_url: &str, json: bool) -> Result<i32> {
+    let triggers = collect(rpc_url);
     let any_fired = triggers.iter().any(|t| t.fired);
     if json {
         println!("{}", serde_json::to_string_pretty(&triggers)?);
