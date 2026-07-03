@@ -4,6 +4,10 @@ version = "0.3.0"
 edition = "2021"
 description = "sondir — the soil test before you build. Pre-flight checks and version compatibility for Solana toolchains."
 license = "MIT"
+repository = "https://github.com/rifuki/sondir"
+readme = "README.md"
+keywords = ["solana", "anchor", "preflight", "mcp", "toolchain"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow = "1"
