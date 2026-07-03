@@ -117,6 +117,41 @@ struct Selection {
     features: Vec<String>,
 }
 
+/// Outcome of probing one synthetic manifest.
+pub enum ProbeResult {
+    Resolves(BTreeMap<String, String>),
+    Conflicts(String),
+}
+
+/// Does this exact set of `(name, req, features)` deps resolve together?
+/// Shared by `facts verify` (which EXPECTS conflicts to fail) and future
+/// callers; `tag` keeps concurrent temp workspaces apart.
+pub fn probe(deps: &[(String, String, Vec<String>)], tag: &str) -> Result<ProbeResult> {
+    let selection: Vec<Selection> = deps
+        .iter()
+        .map(|(name, req, features)| Selection {
+            krate: name.clone(),
+            req: req.clone(),
+            features: features.clone(),
+        })
+        .collect();
+    let workdir = std::env::temp_dir().join(format!("sondir-probe-{tag}-{}", std::process::id()));
+    write_workspace(&workdir, &selection)?;
+    let output = Command::new("cargo")
+        .args(["generate-lockfile", "--quiet"])
+        .current_dir(&workdir)
+        .output()
+        .context("cargo not found on PATH")?;
+    let result = if output.status.success() {
+        let raw = fs::read_to_string(workdir.join("Cargo.lock"))?;
+        ProbeResult::Resolves(parse_lockfile(&raw)?)
+    } else {
+        ProbeResult::Conflicts(String::from_utf8_lossy(&output.stderr).into_owned())
+    };
+    let _ = fs::remove_dir_all(&workdir);
+    Ok(result)
+}
+
 #[derive(Serialize)]
 pub struct Resolution {
     pub requested: Vec<String>,

@@ -40,6 +40,29 @@ pub struct KnownConflict {
     pub b: String,
     pub why: String,
     pub fix: String,
+    /// Machine-checkable form of the claim, for `sondir facts verify`:
+    /// `"crate@req"` or `"crate@req#feat1,feat2"`. A manifest with exactly
+    /// these deps must FAIL to resolve while the conflict is real.
+    #[serde(default)]
+    pub probe: Vec<String>,
+}
+
+/// Parse one probe spec: `name@req` with optional `#features` suffix.
+pub fn parse_probe(spec: &str) -> Option<(String, String, Vec<String>)> {
+    let (dep, features) = match spec.split_once('#') {
+        Some((dep, feats)) => (
+            dep,
+            feats
+                .split(',')
+                .map(str::trim)
+                .filter(|f| !f.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        ),
+        None => (spec, Vec::new()),
+    };
+    let (name, req) = dep.split_once('@')?;
+    Some((name.trim().to_owned(), req.trim().to_owned(), features))
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +106,10 @@ pub fn conflicts() -> &'static [KnownConflict] {
 
 pub fn conflict(id: &str) -> Option<&'static KnownConflict> {
     facts().conflicts.iter().find(|c| c.id == id)
+}
+
+pub fn litesvm_runtimes() -> &'static [LitesvmRuntime] {
+    &facts().litesvm_runtimes
 }
 
 pub fn litesvm_runtime(version: &str) -> Option<&'static LitesvmRuntime> {
@@ -169,6 +196,34 @@ mod tests {
         assert_eq!(facts.conflicts.len(), 3);
         assert_eq!(facts.litesvm_runtimes.len(), 2);
         assert!(conflict("litesvm-magicblock").is_some());
+        // Every embedded conflict must be machine-verifiable by `facts verify`.
+        for conflict in &facts.conflicts {
+            assert!(
+                !conflict.probe.is_empty(),
+                "conflict {} has no probe",
+                conflict.id
+            );
+            for spec in &conflict.probe {
+                assert!(parse_probe(spec).is_some(), "malformed probe: {spec}");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_probe_handles_req_and_features() {
+        assert_eq!(
+            parse_probe("litesvm@>=0.13"),
+            Some(("litesvm".into(), ">=0.13".into(), vec![]))
+        );
+        assert_eq!(
+            parse_probe("ephemeral-rollups-sdk@*#anchor,vrf"),
+            Some((
+                "ephemeral-rollups-sdk".into(),
+                "*".into(),
+                vec!["anchor".into(), "vrf".into()]
+            ))
+        );
+        assert_eq!(parse_probe("no-at-sign"), None);
     }
 
     #[test]

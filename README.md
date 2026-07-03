@@ -26,7 +26,10 @@ sondir resolve --list                           # known aliases (raw crate names
 # has an upstream release/gate unlocked a held-back upgrade yet? (cron/CI-friendly)
 sondir watch [--url <rpc>] [--json]             # exit 3 when a trigger fired
 
-# run as an MCP server so an AI agent can call doctor/resolve/watch
+# re-verify every facts entry against its live source (exit 4 when one went stale)
+sondir facts verify [--url <rpc>] [--json]
+
+# run as an MCP server so an AI agent can call doctor/resolve/watch/facts-verify
 sondir mcp                                       # stdio, newline-delimited JSON-RPC
 
 # any command accepts a custom facts database
@@ -80,6 +83,13 @@ The knowledge that no Cargo metadata expresses lives in `facts/facts.toml` (feat
 with consequences, known conflicts with evidence + fixes, litesvm runtime arch tables).
 It ships embedded in the binary; override with `--facts <path>`. Every entry cites its
 evidence (canary id + date) so it can be re-verified or retired.
+
+`sondir facts verify` does that re-verification automatically: each conflict carries a
+machine-checkable `probe` (a dep selection that must FAIL to resolve while the claim is
+real) run through cargo's own resolver; gates are checked against the cluster. A probe that
+suddenly resolves means upstream fixed it — the entry reports `STALE` and the exit code is
+4, which the daily watch workflow turns into an alert issue. Runtime arch claims need a VM
+execution to re-check, so they stay marked `evidence`.
 
 ## Canary matrix
 

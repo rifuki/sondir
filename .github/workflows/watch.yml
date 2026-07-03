@@ -37,13 +37,25 @@ jobs:
           # 0 = all waiting, 3 = something fired; anything else is a real failure.
           if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
 
+      - name: run sondir facts verify
+        id: facts
+        env:
+          SONDIR_RPC: ${{ secrets.SONDIR_RPC || 'https://api.devnet.solana.com' }}
+        run: |
+          set +e
+          ./target/release/sondir facts verify --json | tee facts.json
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = all hold, 4 = a fact went stale; anything else is a real failure.
+          if [ "$code" -ne 0 ] && [ "$code" -ne 4 ]; then exit "$code"; fi
+
       - name: alert — open or extend the unlock issue
-        if: steps.watch.outputs.code == '3'
+        if: steps.watch.outputs.code == '3' || steps.facts.outputs.code == '4'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="upstream unlock fired (sondir watch)"
-          body="$(printf '`sondir watch` exited 3 on %s — a held-back upgrade just unlocked.\n\n```json\n%s\n```\n\nPlaybook: update facts/facts.toml (new litesvm_runtimes entry / retire the conflict), then re-run the compatibility matrix on the affected projects.' "$(date -u +%F)" "$(cat watch.json)")"
+          body="$(printf 'Daily check on %s: watch exit %s · facts verify exit %s.\n\nwatch:\n```json\n%s\n```\n\nfacts verify:\n```json\n%s\n```\n\nPlaybook: update facts/facts.toml (new litesvm_runtimes entry / retire the stale conflict), then re-run the compatibility matrix on the affected projects.' "$(date -u +%F)" "${{ steps.watch.outputs.code }}" "${{ steps.facts.outputs.code }}" "$(cat watch.json)" "$(cat facts.json)")"
           existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"

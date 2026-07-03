@@ -12,7 +12,7 @@ use std::io::{BufRead, Write};
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::{resolve, run_doctor, watch};
+use crate::{resolve, run_doctor, verify, watch};
 
 /// MCP spec revision we implement. We echo the client's requested version when
 /// they send one (per spec), falling back to this.
@@ -112,6 +112,16 @@ fn tool_definitions() -> Value {
                     "url": { "type": "string", "description": "RPC for the SIMD-0500 gate check; default $SONDIR_RPC else public devnet" }
                 }
             }
+        },
+        {
+            "name": "sondir_facts_verify",
+            "description": "Re-verify every facts-database entry against its live source: conflict claims are probed through cargo's resolver (expected to fail while real; 'stale' means upstream fixed it), feature gates against the cluster. Statuses: verified / stale / evidence / unchecked.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "RPC for gate checks; default $SONDIR_RPC else public devnet" }
+                }
+            }
         }
     ])
 }
@@ -163,6 +173,15 @@ fn call_tool(params: &Value) -> Result<Value> {
                 .or_else(|| std::env::var("SONDIR_RPC").ok())
                 .unwrap_or_else(|| "https://api.devnet.solana.com".into());
             serde_json::to_value(watch::collect(&url))?
+        }
+        "sondir_facts_verify" => {
+            let url = args
+                .get("url")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| std::env::var("SONDIR_RPC").ok())
+                .unwrap_or_else(|| "https://api.devnet.solana.com".into());
+            serde_json::to_value(verify::collect(&url))?
         }
         other => anyhow::bail!("unknown tool: {other}"),
     };
