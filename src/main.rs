@@ -87,6 +87,8 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
     checks::idl_rule(&mut report);
 
     let built = project.artifacts();
+    // Purely local (keypair files vs Anchor.toml) — must run in offline mode too.
+    checks::keypair_drift(&mut report, &built);
 
     if offline {
         report.info("offline", "offline mode", "cluster checks skipped");
@@ -106,8 +108,6 @@ fn doctor(path: &std::path::Path, url: Option<&str>, json: bool, offline: bool) 
         format!("cluster RPC: {}", rpc.url()),
         "override with --url or $SONDIR_RPC",
     );
-
-    checks::keypair_drift(&mut report, &built);
 
     match checks::gates(&mut report, &rpc) {
         Ok(gate) => {

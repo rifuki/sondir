@@ -21,15 +21,17 @@ sondir doctor [--path <anchor-workspace>] [--url <rpc>] [--json] [--offline]
 
 - `--url` (or `$SONDIR_RPC`) overrides the RPC; defaults from Anchor.toml
   `provider.cluster`. Use a dedicated RPC — public devnet rate-limits.
-- `--json` for agents/CI. Exit code 1 when any FAIL finding exists, 2 on execution error.
+- `--json` for agents/CI. Exit codes: 0 clean · 1 any FAIL finding · 2 execution error.
+- Output is ANSI-free automatically when piped (CI logs stay clean).
 - `--offline` skips RPC (local checks only).
 
-## Checks (v0.1)
+## Checks (v0.2)
 
 | Code | Catches |
 |---|---|
+| `resolve` | the workspace does not resolve at all (probes cargo itself — the lockfile can lie after a failed `cargo add`) |
 | `toolchain-anchor` | anchor CLI vs anchor-lang crate mismatch (+ `[toolchain]` pin advice) |
-| `dep-conflict` | known-unresolvable pairs, e.g. litesvm 0.13.x × MagicBlock vrf (`solana-instruction =3.2.0` vs `^3.4`) |
+| `dep-conflict` | known-unresolvable pairs: litesvm 0.13.x × MagicBlock vrf, litesvm 0.13.x × instructions-sysvar ≥3.0.1, legacy solana-program 1.x × modern workspace (all canary-verified) |
 | `keypair-drift` | `target/deploy/*-keypair.json` ≠ Anchor.toml program id — `anchor deploy` targets the keypair and silently lands on the wrong address |
 | `gate` | live feature-gate status: SBPFv3, SIMD-0431 (min-extend 10240), SIMD-0500 (v0–v2 deploy ban) |
 | `arch-cluster` | `.so` SBPF arch flag (ELF e_flags, byte 48) vs what the target cluster accepts |
