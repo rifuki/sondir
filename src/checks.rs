@@ -649,14 +649,145 @@ pub fn anchor_test_footgun(report: &mut Report, project: &Project) {
     );
 }
 
-/// The IDL init-vs-upgrade rule — informational until we derive the metadata
-/// account locally.
-pub fn idl_rule(report: &mut Report) {
-    report.info(
-        "idl-rule",
-        "on-chain IDL: init once, upgrade after",
-        "if the program's IDL metadata account already exists and the IDL changed, `anchor deploy`/`anchor idl init` fail with an opaque \"transaction plan failed\" — use `anchor idl upgrade <program> --filepath target/idl/<name>.json` instead",
-    );
+/// Compare the canonical on-chain IDL (Program Metadata account) with the
+/// local `target/idl/*.json`. Replaces the old static `idl-rule` note with a
+/// real check: absent → init; drifted → upgrade; corrupt → close + init. The
+/// wrong choice fails with an opaque "transaction plan failed" AFTER fees.
+pub fn idl_drift(report: &mut Report, rpc: &RpcClient, project: &Project, built: &[Artifact]) {
+    let Ok(pmp) = Pubkey::from_str(facts::PROGRAM_METADATA_PROGRAM) else {
+        return;
+    };
+    for artifact in built {
+        let Some(program_id) = &artifact.program_id else {
+            continue;
+        };
+        let Ok(program_key) = Pubkey::from_str(program_id) else {
+            continue; // upgrade_preflight already reported the bad id
+        };
+        let idl_path = project
+            .root
+            .join("target/idl")
+            .join(format!("{}.json", artifact.name.replace('-', "_")));
+        let local: Option<serde_json::Value> = std::fs::read(&idl_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+        let (metadata_pda, _) =
+            Pubkey::find_program_address(&[program_key.as_ref(), &facts::IDL_SEED_PADDED], &pmp);
+        let account = match rpc.account(&metadata_pda.to_string()) {
+            Ok(account) => account,
+            Err(err) => {
+                report.warn(
+                    "idl-drift",
+                    format!("{}: RPC read failed — IDL check skipped", artifact.name),
+                    format!("{err:#}"),
+                    None,
+                );
+                continue;
+            }
+        };
+
+        let Some(account) = account else {
+            if local.is_some() {
+                report.info(
+                    "idl-drift",
+                    format!("{}: no canonical on-chain IDL", artifact.name),
+                    format!("metadata account {metadata_pda} does not exist — explorers/clients can't discover the IDL. First write must be an init: `anchor idl init {program_id} --filepath {}` (an `idl upgrade` here fails)", idl_path.display()),
+                );
+            }
+            continue;
+        };
+
+        match on_chain_idl_json(&account.data) {
+            OnChainIdl::Json(on_chain) => match &local {
+                Some(local_idl) if *local_idl == on_chain => report.ok(
+                    "idl-drift",
+                    format!("{}: on-chain IDL matches target/idl", artifact.name),
+                    format!("canonical metadata account {metadata_pda}"),
+                ),
+                Some(_) => report.warn(
+                    "idl-drift",
+                    format!("{}: on-chain IDL DIFFERS from local", artifact.name),
+                    "clients consuming the on-chain IDL see a different interface than this build; the account already exists so an `idl init` would fail opaquely",
+                    Some(format!(
+                        "anchor idl upgrade {program_id} --filepath {}",
+                        idl_path.display()
+                    )),
+                ),
+                None => report.info(
+                    "idl-drift",
+                    format!("{}: on-chain IDL exists, no local IDL to compare", artifact.name),
+                    format!("run `anchor build` to regenerate {}", idl_path.display()),
+                ),
+            },
+            OnChainIdl::NotJson => report.warn(
+                "idl-drift",
+                format!("{}: on-chain IDL is CORRUPT (not valid JSON)", artifact.name),
+                "typical cause: an interrupted chunked write left a partial IDL; `idl upgrade` against it keeps failing",
+                Some(format!(
+                    "anchor idl close {program_id}\nanchor idl init {program_id} --filepath {}",
+                    idl_path.display()
+                )),
+            ),
+            OnChainIdl::NotComparable(why) => report.info(
+                "idl-drift",
+                format!("{}: on-chain IDL not compared", artifact.name),
+                why,
+            ),
+        }
+    }
+}
+
+enum OnChainIdl {
+    Json(serde_json::Value),
+    NotJson,
+    NotComparable(String),
+}
+
+/// Parse a Program Metadata account: 96-byte header (discriminator, program,
+/// authority, flags, seed, encoding, compression, format, data_source,
+/// data_length LE) followed by the document bytes.
+fn on_chain_idl_json(data: &[u8]) -> OnChainIdl {
+    use std::io::Read;
+    if data.len() < facts::METADATA_HEADER_LEN || data[0] != 2 {
+        return OnChainIdl::NotComparable(format!(
+            "account is not an initialized metadata account (discriminator {:?})",
+            data.first()
+        ));
+    }
+    let data_source = data[86];
+    if data_source != 0 {
+        return OnChainIdl::NotComparable(
+            "IDL is stored as a url/external pointer, not directly on chain".into(),
+        );
+    }
+    let declared_len = u32::from_le_bytes([data[87], data[88], data[89], data[90]]) as usize;
+    let body = &data[facts::METADATA_HEADER_LEN..];
+    let body = &body[..declared_len.min(body.len())];
+    let inflated: Vec<u8> = match data[84] {
+        0 => body.to_vec(),
+        1 => {
+            let mut out = Vec::new();
+            match flate2::read::GzDecoder::new(body).read_to_end(&mut out) {
+                Ok(_) => out,
+                Err(_) => return OnChainIdl::NotJson,
+            }
+        }
+        2 => {
+            let mut out = Vec::new();
+            match flate2::read::ZlibDecoder::new(body).read_to_end(&mut out) {
+                Ok(_) => out,
+                Err(_) => return OnChainIdl::NotJson,
+            }
+        }
+        other => {
+            return OnChainIdl::NotComparable(format!("unknown compression tag {other}"));
+        }
+    };
+    match serde_json::from_slice(&inflated) {
+        Ok(value) => OnChainIdl::Json(value),
+        Err(_) => OnChainIdl::NotJson,
+    }
 }
 
 fn wallet_pubkey(project: &Project) -> Option<String> {
