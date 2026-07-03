@@ -1,0 +1,52 @@
+# Daily upstream-unlock watch. `sondir watch` exits 3 when a trigger fires
+# (litesvm Agave-4.1 wave, SIMD-0500 activation, anchor pubkey-4 wave) — this
+# job then opens (or comments on) an alert issue so the unlock day is noticed
+# without anyone running the command by hand.
+name: watch
+
+on:
+  schedule:
+    - cron: "23 3 * * *" # daily 03:23 UTC (odd minute: GH throttles on-the-hour crons)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --release
+
+      - name: run sondir watch
+        id: watch
+        env:
+          # Repo secret overrides; falls back to public devnet (one gate read/day is fine).
+          SONDIR_RPC: ${{ secrets.SONDIR_RPC || 'https://api.devnet.solana.com' }}
+        run: |
+          set +e
+          ./target/release/sondir watch --json | tee watch.json
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = all waiting, 3 = something fired; anything else is a real failure.
+          if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
+
+      - name: alert — open or extend the unlock issue
+        if: steps.watch.outputs.code == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="upstream unlock fired (sondir watch)"
+          body="$(printf '`sondir watch` exited 3 on %s — a held-back upgrade just unlocked.\n\n```json\n%s\n```\n\nPlaybook: update facts/facts.toml (new litesvm_runtimes entry / retire the conflict), then re-run the compatibility matrix on the affected projects.' "$(date -u +%F)" "$(cat watch.json)")"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

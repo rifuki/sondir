@@ -51,6 +51,7 @@ sondir --facts my-facts.toml doctor ...
 | `arch-cluster` | `.so` SBPF arch flag (ELF e_flags, byte 48) vs what the target cluster accepts |
 | `arch-litesvm` | `.so` arch vs what the locked litesvm runtime executes ("Access violation" prevention) |
 | `simd0431-extend` | upgrade will fail because the binary grew and extend rules changed; exact `solana program extend` fix |
+| `deployed-drift` | on-chain program bytes vs local `target/deploy` build (trailing-zero-padding aware) — know what an upgrade would replace, catch "what's deployed isn't what I built" |
 | `upgrade-authority` | configured wallet is not the on-chain upgrade authority |
 | `stranded-buffer` | leftover `*-upgrade-buffer.json` with rent still locked on-chain; resume/close command |
 | `balance` | wallet can't afford the largest upgrade buffer |
@@ -94,6 +95,11 @@ requirement leaves the `=3.2.0` pin), SIMD-0500 activating on the target cluster
 deploys die), or anchor crossing to the pubkey-4 interface wave. Each trigger prints
 `FIRED`/`waiting` with what to do when it fires. Exit code `3` when anything fired, so a cron
 or CI job can alert on it (`--json` for machine parsing).
+
+This repo runs it itself: `.github/workflows/watch.yml` executes `sondir watch` daily and
+opens/extends an alert issue on exit 3 — the unlock day gets noticed without anyone
+remembering to check. (Context: litesvm's maintainer confirmed an Agave-4.1-wave release is
+coming — [LiteSVM/litesvm#372](https://github.com/LiteSVM/litesvm/issues/372).)
 
 ## MCP server
 
