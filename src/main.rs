@@ -10,6 +10,7 @@ mod project;
 mod report;
 mod resolve;
 mod rpc;
+mod watch;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -48,6 +49,15 @@ enum Command {
         #[arg(long)]
         offline: bool,
     },
+    /// Check upstream unlock triggers (litesvm Agave-4.1 wave, SIMD-0500, anchor wave).
+    Watch {
+        /// RPC for gate checks (else $SONDIR_RPC, else public devnet).
+        #[arg(long)]
+        url: Option<String>,
+        /// Emit trigger statuses as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Find a mutually-compatible version set for a selection of ecosystem deps.
     Resolve {
         /// Ecosystem aliases or raw crate names (try: anchor litesvm magicblock). See --list.
@@ -84,6 +94,12 @@ fn run(cli: Cli) -> Result<i32> {
             json,
             offline,
         } => doctor(&path, url.as_deref(), json, offline),
+        Command::Watch { url, json } => {
+            let rpc_url = url
+                .or_else(|| std::env::var("SONDIR_RPC").ok())
+                .unwrap_or_else(|| "https://api.devnet.solana.com".into());
+            watch::run(&rpc_url, json)
+        }
         Command::Resolve { names, list, json } => {
             if list || names.is_empty() {
                 resolve::list_aliases();
