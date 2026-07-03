@@ -160,6 +160,43 @@ impl Project {
         }
         declared
     }
+
+    /// A dependency's version: resolved (lockfile) first, declared (manifest)
+    /// as fallback — the lock can be stale or absent after a failed resolve.
+    pub fn dep_version(&self, name: &str) -> Option<String> {
+        self.locked
+            .get(name)
+            .cloned()
+            .or_else(|| self.declared_deps().get(name).cloned())
+    }
+
+    /// The provider wallet as an absolute path (`~` expanded, relative paths
+    /// anchored at the workspace root). `None` when unset.
+    pub fn wallet_path(&self) -> Option<PathBuf> {
+        let raw = self.anchor.provider.wallet.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        Some(resolve_wallet_path(raw, home.as_deref(), &self.root))
+    }
+}
+
+/// Anchor configs routinely use `~/.config/solana/id.json`; the shell never
+/// expands that for us. Absolute paths pass through; everything else is
+/// workspace-relative.
+fn resolve_wallet_path(raw: &str, home: Option<&Path>, root: &Path) -> PathBuf {
+    if let Some(rest) = raw.strip_prefix("~/") {
+        if let Some(home) = home {
+            return home.join(rest);
+        }
+    }
+    let path = Path::new(raw);
+    if path.is_absolute() {
+        path.to_owned()
+    } else {
+        root.join(path)
+    }
 }
 
 fn parse_declared(raw: &str) -> Vec<(String, String)> {
@@ -212,6 +249,11 @@ fn parse_lockfile(raw: &str) -> Result<BTreeMap<String, String>> {
 /// ELF `e_flags` lives at byte offset 48 (little-endian u32). Solana encodes
 /// the SBPF arch version there.
 pub fn sbpf_flag(elf: &[u8]) -> u32 {
+    // A truncated or non-ELF file must not read as "arch v0" — guard the magic
+    // before trusting e_flags (audit pass 1).
+    if !elf.starts_with(&[0x7f, b'E', b'L', b'F']) {
+        return u32::MAX;
+    }
     elf.get(48..52)
         .and_then(|b| b.try_into().ok())
         .map(u32::from_le_bytes)
@@ -270,6 +312,7 @@ mod tests {
     #[test]
     fn sbpf_flag_reads_e_flags_at_offset_48() {
         let mut elf = vec![0u8; 64];
+        elf[..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
         elf[48] = 3;
         assert_eq!(sbpf_flag(&elf), 3);
     }
@@ -352,5 +395,50 @@ mod declared_tests {
         );
         assert!(deps.contains(&("litesvm".into(), "0.13.1".into())));
         assert!(deps.contains(&("ephemeral-rollups-sdk".into(), "0.15.5".into())));
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    #[test]
+    fn wallet_tilde_expands_to_home() {
+        let p = resolve_wallet_path(
+            "~/.config/solana/id.json",
+            Some(Path::new("/home/u")),
+            Path::new("/repo"),
+        );
+        assert_eq!(p, PathBuf::from("/home/u/.config/solana/id.json"));
+    }
+
+    #[test]
+    fn wallet_absolute_passes_through() {
+        let p = resolve_wallet_path(
+            "/abs/wallet.json",
+            Some(Path::new("/home/u")),
+            Path::new("/repo"),
+        );
+        assert_eq!(p, PathBuf::from("/abs/wallet.json"));
+    }
+
+    #[test]
+    fn wallet_relative_anchors_at_root() {
+        let p = resolve_wallet_path(
+            ".raflux/owner.json",
+            Some(Path::new("/home/u")),
+            Path::new("/repo"),
+        );
+        assert_eq!(p, PathBuf::from("/repo/.raflux/owner.json"));
+    }
+
+    #[test]
+    fn non_elf_bytes_never_read_as_arch_v0() {
+        let garbage = vec![0u8; 64];
+        assert_eq!(sbpf_flag(&garbage), u32::MAX);
+        let mut elf = vec![0u8; 64];
+        elf[..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        elf[48] = 1;
+        assert_eq!(sbpf_flag(&elf), 1);
     }
 }

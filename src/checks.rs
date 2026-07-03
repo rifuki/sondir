@@ -75,9 +75,14 @@ pub fn toolchain(report: &mut Report, project: &Project) {
 /// Does the workspace even resolve? The lockfile can look healthy while the
 /// manifest graph is unresolvable (`cargo add` writes the dep, then fails to
 /// re-lock) — so probe cargo itself. Found by canary c05.
-pub fn resolve_probe(report: &mut Report, project: &Project) {
+pub fn resolve_probe(report: &mut Report, project: &Project, offline: bool) {
+    let mut args = vec!["metadata", "--format-version", "1"];
+    if offline {
+        // Honor doctor's no-network contract; cargo may otherwise hit the index.
+        args.push("--offline");
+    }
     let output = Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
+        .args(&args)
         .current_dir(&project.root)
         .output();
     match output {
@@ -86,6 +91,13 @@ pub fn resolve_probe(report: &mut Report, project: &Project) {
             "dependency graph resolves",
             "cargo metadata succeeded",
         ),
+        Ok(out) if offline && String::from_utf8_lossy(&out.stderr).contains("--offline") => {
+            report.info(
+                "resolve",
+                "resolve probe inconclusive offline",
+                "cargo needs the network to (re-)resolve this workspace; re-run without --offline",
+            );
+        }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             let mut summary: String = stderr
@@ -243,12 +255,21 @@ pub fn artifacts(report: &mut Report, project: &Project, built: &[Artifact], gat
         return;
     }
 
-    let litesvm_runtime = project.locked.get("litesvm").and_then(|version| {
-        facts::litesvm_runtime(version).map(|runtime| (version.clone(), runtime))
+    let litesvm_runtime = project.dep_version("litesvm").and_then(|version| {
+        facts::litesvm_runtime(&version).map(|runtime| (version.clone(), runtime))
     });
 
     for artifact in built {
         let flag = artifact.sbpf_flag;
+        if flag == u32::MAX {
+            report.fail(
+                "arch-cluster",
+                format!("{}.so is not a valid ELF (or is truncated)", artifact.name),
+                format!("{} bytes · {}", artifact.so_len, artifact.so_path.display()),
+                Some("rebuild the artifact (`anchor build`)".into()),
+            );
+            continue;
+        }
         match facts::arch_deployable(flag, gate.sbpf_v3, gate.simd_0500) {
             Ok(()) => report.ok(
                 "arch-cluster",
@@ -383,17 +404,21 @@ pub fn upgrade_preflight(
             }
         }
         let Some(account) = programdata_account else {
-            let rent = rpc
-                .min_rent(artifact.so_len + facts::PROGRAMDATA_METADATA_LEN)
-                .unwrap_or_default();
-            report.info(
-                "upgrade-preflight",
-                format!("{}: fresh deploy (no programdata on cluster)", artifact.name),
-                format!(
+            let detail = match rpc.min_rent(artifact.so_len + facts::PROGRAMDATA_METADATA_LEN) {
+                Ok(rent) => format!(
                     "expect ~{:.2} SOL locked as programdata rent, ~{:.2} SOL peak during deploy (buffer + programdata coexist until the buffer refunds)",
                     lamports_to_sol(rent),
                     lamports_to_sol(rent * 2),
                 ),
+                Err(_) => "rent estimate unavailable (RPC read failed)".into(),
+            };
+            report.info(
+                "upgrade-preflight",
+                format!(
+                    "{}: fresh deploy (no programdata on cluster)",
+                    artifact.name
+                ),
+                detail,
             );
             continue;
         };
@@ -471,7 +496,19 @@ pub fn stranded_buffers(report: &mut Report, rpc: &RpcClient, project: &Project)
         let Ok(buffer) = keypair_pubkey(&keypair_path) else {
             continue;
         };
-        let lamports = rpc.balance(&buffer).unwrap_or(0);
+        // An RPC error must not read as "0 SOL, nothing stranded" (audit pass 1).
+        let lamports = match rpc.balance(&buffer) {
+            Ok(lamports) => lamports,
+            Err(err) => {
+                report.warn(
+                    "stranded-buffer",
+                    format!("could not check buffer {buffer}"),
+                    format!("{err:#}"),
+                    None,
+                );
+                continue;
+            }
+        };
         if lamports > 0 {
             report.warn(
                 "stranded-buffer",
@@ -493,6 +530,17 @@ pub fn stranded_buffers(report: &mut Report, rpc: &RpcClient, project: &Project)
 /// Enough SOL for the largest pending buffer?
 pub fn balance(report: &mut Report, rpc: &RpcClient, project: &Project, built: &[Artifact]) {
     let Some(wallet) = wallet_pubkey(project) else {
+        if !project.anchor.provider.wallet.trim().is_empty() {
+            report.warn(
+                "balance",
+                "provider wallet could not be read — balance/authority checks skipped",
+                format!(
+                    "Anchor.toml provider.wallet = \"{}\"",
+                    project.anchor.provider.wallet
+                ),
+                Some("check the path (and that solana-keygen is on PATH)".into()),
+            );
+        }
         return;
     };
     let Ok(lamports) = rpc.balance(&wallet) else {
@@ -562,6 +610,9 @@ pub fn idl_rule(report: &mut Report) {
 }
 
 fn wallet_pubkey(project: &Project) -> Option<String> {
-    let wallet_path = project.root.join(&project.anchor.provider.wallet);
+    // `~` in Anchor.toml wallet paths is common and the OS never expands it —
+    // audit pass 1 found the old `root.join(raw)` silently broke on it,
+    // skipping the balance/authority checks without a trace.
+    let wallet_path = project.wallet_path()?;
     keypair_pubkey(&wallet_path).ok()
 }
