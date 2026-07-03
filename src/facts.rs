@@ -105,6 +105,17 @@ pub const BUFFER_METADATA_LEN: u64 = 37;
 /// SIMD-0431: Loader-v3 minimum extend size, in bytes.
 pub const MIN_EXTEND_BYTES: u64 = 10_240;
 
+/// Program Metadata program (stores canonical IDLs for anchor 1.x).
+pub const PROGRAM_METADATA_PROGRAM: &str = "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8Lyv7nk7S";
+
+/// Canonical IDL metadata PDA seed: "idl" zero-padded to the program's
+/// SEED_LEN of 16 (EMPIRICAL, devnet 2026-07-04: raw "idl" derives an
+/// account that does not exist; the padded form matches anchor's writes).
+pub const IDL_SEED_PADDED: [u8; 16] = *b"idl\0\0\0\0\0\0\0\0\0\0\0\0\0";
+
+/// Bytes of Program Metadata `Header` before the data (repr(C), align 1).
+pub const METADATA_HEADER_LEN: usize = 96;
+
 /// SBPF arch flag (ELF e_flags word at byte offset 48) vs cluster deploy rules.
 ///
 /// EMPIRICAL (canary c15, devnet 2026-07-03): with the SBPFv3 gate active the
