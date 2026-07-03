@@ -10,12 +10,16 @@ pub enum Severity {
 }
 
 impl Severity {
-    fn glyph(self) -> &'static str {
-        match self {
-            Severity::Ok => "\x1b[32m✓\x1b[0m",
-            Severity::Info => "\x1b[36mi\x1b[0m",
-            Severity::Warn => "\x1b[33m⚠\x1b[0m",
-            Severity::Fail => "\x1b[31m✗\x1b[0m",
+    fn glyph(self, color: bool) -> &'static str {
+        match (self, color) {
+            (Severity::Ok, true) => "\x1b[32m✓\x1b[0m",
+            (Severity::Info, true) => "\x1b[36mi\x1b[0m",
+            (Severity::Warn, true) => "\x1b[33m⚠\x1b[0m",
+            (Severity::Fail, true) => "\x1b[31m✗\x1b[0m",
+            (Severity::Ok, false) => "✓",
+            (Severity::Info, false) => "i",
+            (Severity::Warn, false) => "⚠",
+            (Severity::Fail, false) => "✗",
         }
     }
 }
@@ -92,14 +96,18 @@ impl Report {
         if json {
             println!("{}", serde_json::to_string_pretty(self)?);
         } else {
+            // No ANSI noise when piped into files/CI logs (audit pass 1).
+            use std::io::IsTerminal;
+            let color = std::io::stdout().is_terminal();
+            let fix_label = if color { "\x1b[1mfix:\x1b[0m" } else { "fix:" };
             for f in &self.findings {
-                println!("{} [{}] {}", f.severity.glyph(), f.code, f.title);
+                println!("{} [{}] {}", f.severity.glyph(color), f.code, f.title);
                 for line in f.detail.lines() {
                     println!("      {line}");
                 }
                 if let Some(fix) = &f.fix {
                     for line in fix.lines() {
-                        println!("      \x1b[1mfix:\x1b[0m {line}");
+                        println!("      {fix_label} {line}");
                     }
                 }
             }
