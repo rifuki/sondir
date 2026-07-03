@@ -1,8 +1,11 @@
-# DRAFT — go-public checklist (NOT EXECUTED)
+# go-public checklist
 
-> Status: draft, awaiting owner decision. None of these steps have run. Making
-> the repo public and publishing to crates.io are one-way, outward-facing
-> actions — do them only on explicit go-ahead.
+> Status (2026-07-03): repo was briefly flipped public then **reverted to PRIVATE**
+> at owner's request. **crates.io: NOT published** (owner declined `cargo publish`).
+> The litesvm issue IS filed (#372). Cargo.toml metadata (repository/keywords/
+> categories) already added. History scanned clean (only a placeholder test URL +
+> the grep pattern below matched — no real secret). Re-decide crates.io / public
+> before doing either again.
 
 ## Before flipping the repo public
 

@@ -1,7 +1,8 @@
-# DRAFT — litesvm upstream issue (NOT FILED)
+# litesvm upstream issue — FILED
 
-> Status: draft, awaiting owner go-ahead before filing at
-> https://github.com/LiteSVM/litesvm/issues . Nothing here has been posted.
+> Status: FILED 2026-07-03 as https://github.com/LiteSVM/litesvm/issues/372
+> (owner said "gas dah"). Text below is the source; the issue itself omits the
+> DRAFT header. Can be edited/closed on the issue page.
 
 **Title:** `0.13.x pins `solana-instruction = "=3.2.0"`, making it unresolvable with the `^3.4` interface wave (MagicBlock VRF, `solana-instructions-sysvar` 3.0.1+)`
 
