@@ -11,6 +11,7 @@ mod project;
 mod report;
 mod resolve;
 mod rpc;
+mod verify;
 mod watch;
 
 use std::path::PathBuf;
@@ -72,6 +73,24 @@ enum Command {
     },
     /// Run as an MCP server (stdio) exposing doctor/resolve/watch to AI agents.
     Mcp,
+    /// Facts database maintenance.
+    Facts {
+        #[command(subcommand)]
+        cmd: FactsCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum FactsCommand {
+    /// Re-verify every facts entry against its live source (cargo probe, cluster RPC).
+    Verify {
+        /// RPC for gate checks (else $SONDIR_RPC, else public devnet).
+        #[arg(long)]
+        url: Option<String>,
+        /// Emit statuses as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -111,6 +130,14 @@ fn run(cli: Cli) -> Result<i32> {
             resolve::run(&names, json)
         }
         Command::Mcp => mcp::serve(),
+        Command::Facts {
+            cmd: FactsCommand::Verify { url, json },
+        } => {
+            let rpc_url = url
+                .or_else(|| std::env::var("SONDIR_RPC").ok())
+                .unwrap_or_else(|| "https://api.devnet.solana.com".into());
+            verify::run(&rpc_url, json)
+        }
     }
 }
 
