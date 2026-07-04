@@ -16,9 +16,10 @@ pub struct AccountInfo {
 
 impl RpcClient {
     pub fn new(url: impl Into<String>) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(15))
-            .build();
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(15)))
+            .build()
+            .into();
         Self {
             url: url.into(),
             agent,
@@ -41,12 +42,14 @@ impl RpcClient {
             match self
                 .agent
                 .post(&self.url)
-                .set("content-type", "application/json")
-                .send_json(body.clone())
+                .header("content-type", "application/json")
+                .send_json(&body)
             {
-                Ok(response) => {
-                    let response: Value =
-                        response.into_json().context("RPC response was not JSON")?;
+                Ok(mut response) => {
+                    let response: Value = response
+                        .body_mut()
+                        .read_json()
+                        .context("RPC response was not JSON")?;
                     if let Some(err) = response.get("error") {
                         return Err(anyhow!("RPC {method} error: {err}"));
                     }

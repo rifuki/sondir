@@ -17,10 +17,10 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
-ureq = { version = "2", features = ["json"] }
+toml = "1"
+ureq = { version = "3", features = ["json"] }
 base64 = "0.22"
-solana-pubkey = { version = "3", features = ["curve25519", "sha2"] }
+solana-pubkey = { version = "4", features = ["curve25519", "sha2"] }
 flate2 = "1.1.9"
 semver = "1.0.28"
 

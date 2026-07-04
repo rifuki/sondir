@@ -200,7 +200,9 @@ fn resolve_wallet_path(raw: &str, home: Option<&Path>, root: &Path) -> PathBuf {
 }
 
 fn parse_declared(raw: &str) -> Vec<(String, String)> {
-    let Ok(value) = raw.parse::<toml::Value>() else {
+    // `str::parse::<Value>()` parses a single value; a manifest is a whole
+    // document, so go through the deserializer (toml 1.x tightened this).
+    let Ok(value) = toml::from_str::<toml::Value>(raw) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -390,13 +392,12 @@ mod declared_tests {
 
     #[test]
     fn declared_deps_sees_plain_and_table_specs() {
+        // Realistic manifest layout — no leading indentation, as cargo writes it.
         let deps = parse_declared(
-            r#"
-            [dependencies]
-            ephemeral-rollups-sdk = { version = "0.15.5", features = ["anchor", "vrf"] }
-            [dev-dependencies]
-            litesvm = "0.13.1"
-            "#,
+            "[dependencies]\n\
+             ephemeral-rollups-sdk = { version = \"0.15.5\", features = [\"anchor\", \"vrf\"] }\n\
+             [dev-dependencies]\n\
+             litesvm = \"0.13.1\"\n",
         );
         assert!(deps.contains(&("litesvm".into(), "0.13.1".into())));
         assert!(deps.contains(&("ephemeral-rollups-sdk".into(), "0.15.5".into())));

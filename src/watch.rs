@@ -23,9 +23,10 @@ pub struct Trigger {
 
 /// Evaluate all triggers without printing (shared by the CLI and the MCP server).
 pub fn collect(rpc_url: &str) -> Vec<Trigger> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(15))
-        .build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(15)))
+        .build()
+        .into();
     let mut triggers = Vec::new();
 
     // 1. litesvm ships an Agave-4.1-wave release (solana-instruction req leaves =3.2.0).
@@ -147,11 +148,12 @@ fn anchor_wave_trigger(agent: &ureq::Agent) -> Result<Trigger> {
 
 pub fn crates_io_max_version(agent: &ureq::Agent, krate: &str) -> Result<String> {
     let body: Value = agent
-        .get(&format!("https://crates.io/api/v1/crates/{krate}"))
-        .set("user-agent", "sondir (https://github.com/rifuki/sondir)")
+        .get(format!("https://crates.io/api/v1/crates/{krate}"))
+        .header("user-agent", "sondir (https://github.com/rifuki/sondir)")
         .call()
         .with_context(|| format!("crates.io lookup for {krate} failed"))?
-        .into_json()?;
+        .body_mut()
+        .read_json()?;
     body["crate"]["max_stable_version"]
         .as_str()
         .map(str::to_owned)
@@ -165,13 +167,14 @@ fn crates_io_dep_req(
     dep: &str,
 ) -> Result<Option<String>> {
     let body: Value = agent
-        .get(&format!(
+        .get(format!(
             "https://crates.io/api/v1/crates/{krate}/{version}/dependencies"
         ))
-        .set("user-agent", "sondir (https://github.com/rifuki/sondir)")
+        .header("user-agent", "sondir (https://github.com/rifuki/sondir)")
         .call()
         .with_context(|| format!("crates.io deps lookup for {krate} {version} failed"))?
-        .into_json()?;
+        .body_mut()
+        .read_json()?;
     Ok(body["dependencies"]
         .as_array()
         .into_iter()

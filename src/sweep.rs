@@ -56,9 +56,10 @@ struct Subject {
 }
 
 pub fn run(json: bool) -> Result<i32> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(15))
-        .build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(15)))
+        .build()
+        .into();
 
     eprintln!("resolving latest versions from crates.io…");
     let mut subjects = Vec::new();
