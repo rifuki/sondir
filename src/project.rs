@@ -280,21 +280,26 @@ fn cluster_to_url(cluster: &str) -> String {
     }
 }
 
-/// `solana-keygen pubkey <path>` — avoids pulling ed25519 into our deps.
+/// Read the pubkey out of a Solana keypair file without shelling out: the
+/// file is a JSON array of 64 bytes laid out `[secret(32) || pubkey(32)]`,
+/// so the address is literally the last 32 bytes — no signing crypto needed.
+/// (Was `solana-keygen pubkey`; the shell-out made every keypair check depend
+/// on the CLI being installed and made the test suite non-hermetic.)
 pub fn keypair_pubkey(path: &Path) -> Result<String> {
-    let output = Command::new("solana-keygen")
-        .arg("pubkey")
-        .arg(path)
-        .output()
-        .context("solana-keygen not found on PATH")?;
-    if !output.status.success() {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("cannot read keypair file {}", path.display()))?;
+    let bytes: Vec<u8> = serde_json::from_str(&raw)
+        .with_context(|| format!("{} is not a JSON byte-array keypair", path.display()))?;
+    if bytes.len() != 64 {
         return Err(anyhow!(
-            "solana-keygen pubkey {} failed: {}",
+            "{}: expected 64-byte keypair, got {} bytes",
             path.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
+            bytes.len()
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    let pubkey = solana_pubkey::Pubkey::try_from(&bytes[32..])
+        .map_err(|_| anyhow!("{}: malformed public key half", path.display()))?;
+    Ok(pubkey.to_string())
 }
 
 pub fn tool_version(tool: &str) -> Option<String> {
