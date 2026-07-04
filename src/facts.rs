@@ -14,6 +14,7 @@ use serde::Deserialize;
 const EMBEDDED: &str = include_str!("../facts/facts.toml");
 
 static FACTS: OnceLock<FactsFile> = OnceLock::new();
+static RAW: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 pub struct FactsFile {
@@ -80,12 +81,19 @@ pub fn load(override_path: Option<&Path>) -> Result<()> {
         Some(path) => {
             let raw = std::fs::read_to_string(path)
                 .with_context(|| format!("cannot read facts file {}", path.display()))?;
-            toml::from_str(&raw).context("facts file did not parse")?
+            let parsed = toml::from_str(&raw).context("facts file did not parse")?;
+            let _ = RAW.set(raw);
+            parsed
         }
         None => embedded(),
     };
     let _ = FACTS.set(parsed);
     Ok(())
+}
+
+/// The facts database as raw TOML text (for the MCP resources surface).
+pub fn raw() -> &'static str {
+    RAW.get().map_or(EMBEDDED, String::as_str)
 }
 
 fn embedded() -> FactsFile {
@@ -193,7 +201,7 @@ mod tests {
     fn embedded_facts_parse_and_are_complete() {
         let facts = embedded();
         assert_eq!(facts.gates.len(), 3);
-        assert_eq!(facts.conflicts.len(), 3);
+        assert_eq!(facts.conflicts.len(), 7);
         assert_eq!(facts.litesvm_runtimes.len(), 2);
         assert!(conflict("litesvm-magicblock").is_some());
         // Every embedded conflict must be machine-verifiable by `facts verify`.

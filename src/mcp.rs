@@ -12,7 +12,7 @@ use std::io::{BufRead, Write};
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::{resolve, run_doctor, verify, watch};
+use crate::{facts, resolve, run_doctor, verify, watch};
 
 /// MCP spec revision we implement. We echo the client's requested version when
 /// they send one (per spec), falling back to this.
@@ -56,9 +56,53 @@ fn dispatch(method: &str, params: &Value, id: Value) -> Value {
             Ok(result) => success(id, result),
             Err(err) => tool_error(id, &format!("{err:#}")),
         },
+        "resources/list" => success(id, json!({ "resources": resource_definitions() })),
+        "resources/read" => match read_resource(params) {
+            Ok(contents) => success(id, contents),
+            Err(err) => error(id, -32002, &format!("{err:#}")),
+        },
         // notifications/* never reach here (no id); anything else is unknown.
         other => method_not_found(id, other),
     }
+}
+
+fn resource_definitions() -> Value {
+    json!([
+        {
+            "uri": "sondir://facts",
+            "name": "facts database",
+            "description": "Curated Solana toolchain facts: feature gates with consequences, known dependency conflicts with evidence + fixes + machine-checkable probes, litesvm runtime arch tables.",
+            "mimeType": "application/toml"
+        },
+        {
+            "uri": "sondir://watch",
+            "name": "upstream unlock trigger status",
+            "description": "Live status of the upstream events that unlock held-back upgrades (litesvm Agave-4.1 wave, SIMD-0500 activation, anchor pubkey-4 wave). Reading this performs crates.io + RPC lookups.",
+            "mimeType": "application/json"
+        }
+    ])
+}
+
+fn read_resource(params: &Value) -> Result<Value> {
+    let uri = params
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("resources/read missing uri"))?;
+    let (mime, text) = match uri {
+        "sondir://facts" => ("application/toml", facts::raw().to_owned()),
+        "sondir://watch" => {
+            let url = std::env::var("SONDIR_RPC")
+                .unwrap_or_else(|_| "https://api.devnet.solana.com".into());
+            (
+                "application/json",
+                serde_json::to_string_pretty(&watch::collect(&url))?,
+            )
+        }
+        other => anyhow::bail!("unknown resource: {other}"),
+    };
+    Ok(json!({
+        "contents": [{ "uri": uri, "mimeType": mime, "text": text }]
+    }))
 }
 
 fn initialize_result(params: &Value) -> Value {
@@ -68,9 +112,9 @@ fn initialize_result(params: &Value) -> Value {
         .unwrap_or(PROTOCOL_VERSION);
     json!({
         "protocolVersion": protocol,
-        "capabilities": { "tools": {} },
+        "capabilities": { "tools": {}, "resources": {} },
         "serverInfo": { "name": "sondir", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": "Solana toolchain pre-flight. Call sondir_doctor before deploying/upgrading an Anchor workspace; sondir_resolve to find a compatible dependency version set; sondir_watch to see if an upstream release/gate unlocked a held-back upgrade."
+        "instructions": "Solana toolchain pre-flight. Call sondir_doctor before deploying/upgrading an Anchor workspace; sondir_resolve to find a compatible dependency version set; sondir_watch to see if an upstream release/gate unlocked a held-back upgrade; sondir_facts_verify to re-check the facts DB against live sources. All tools are read-only. Resources: sondir://facts (the facts DB, TOML) and sondir://watch (live trigger status, JSON)."
     })
 }
 
@@ -78,6 +122,7 @@ fn tool_definitions() -> Value {
     json!([
         {
             "name": "sondir_doctor",
+            "annotations": { "readOnlyHint": true },
             "description": "Read-only pre-flight for an Anchor workspace: SBPF arch vs cluster/litesvm, SIMD-0431 extend surprises, stranded upgrade buffers, IDL init-vs-upgrade, keypair drift, upgrade authority, balance. Returns findings (severity ok/info/warn/fail) with fixes.",
             "inputSchema": {
                 "type": "object",
@@ -90,6 +135,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "sondir_resolve",
+            "annotations": { "readOnlyHint": true },
             "description": "Find a mutually-compatible version set for Solana ecosystem deps. Accepts aliases (anchor, litesvm, magicblock, light, pyth, switchboard, metaplex, ...) or raw crate names. Lets cargo's resolver search, applies facts-driven pins on conflict, and reports which Agave interface wave you landed on.",
             "inputSchema": {
                 "type": "object",
@@ -105,6 +151,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "sondir_watch",
+            "annotations": { "readOnlyHint": true },
             "description": "Check whether an upstream event unlocked a held-back upgrade: litesvm's Agave-4.1 wave (crates.io), SIMD-0500 v0-v2 deploy ban activation (cluster), anchor's pubkey-4 interface wave. Each trigger reports fired/waiting plus what to do when it fires.",
             "inputSchema": {
                 "type": "object",
@@ -115,6 +162,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "sondir_facts_verify",
+            "annotations": { "readOnlyHint": true },
             "description": "Re-verify every facts-database entry against its live source: conflict claims are probed through cargo's resolver (expected to fail while real; 'stale' means upstream fixed it), feature gates against the cluster. Statuses: verified / stale / evidence / unchecked.",
             "inputSchema": {
                 "type": "object",
@@ -217,10 +265,14 @@ fn tool_error(id: Value, message: &str) -> Value {
 }
 
 fn method_not_found(id: Value, method: &str) -> Value {
+    error(id, -32601, &format!("method not found: {method}"))
+}
+
+fn error(id: Value, code: i64, message: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": id,
-        "error": { "code": -32601, "message": format!("method not found: {method}") }
+        "error": { "code": code, "message": message }
     })
 }
 

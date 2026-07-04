@@ -1,0 +1,49 @@
+# Weekly proactive conflict discovery. `sondir sweep` probes every ecosystem
+# crate pair at latest × latest through cargo's resolver; exit 5 means a
+# conflict NOT yet in the facts DB appeared — open/extend an issue so it gets
+# reproduced and recorded before users hit it.
+name: sweep
+
+on:
+  schedule:
+    - cron: "37 4 * * 1" # Mondays 04:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --release
+
+      - name: run sondir sweep
+        id: sweep
+        run: |
+          set +e
+          ./target/release/sondir sweep --json | tee sweep.json
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = nothing new, 5 = new conflict candidates; anything else is a failure.
+          if [ "$code" -ne 0 ] && [ "$code" -ne 5 ]; then exit "$code"; fi
+
+      - name: alert — open or extend the discovery issue
+        if: steps.sweep.outputs.code == '5'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="new ecosystem conflict discovered (sondir sweep)"
+          body="$(printf 'Weekly sweep on %s found conflict candidate(s) not yet in the facts DB.\n\n```json\n%s\n```\n\nPlaybook: reproduce each NEW pair, add a [[conflicts]] entry with a pinned probe to facts/facts.toml, confirm with `sondir facts verify`, then re-run `sondir sweep` (must exit 0).' "$(date -u +%F)" "$(cat sweep.json)")"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

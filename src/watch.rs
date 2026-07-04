@@ -145,7 +145,7 @@ fn anchor_wave_trigger(agent: &ureq::Agent) -> Result<Trigger> {
     })
 }
 
-fn crates_io_max_version(agent: &ureq::Agent, krate: &str) -> Result<String> {
+pub fn crates_io_max_version(agent: &ureq::Agent, krate: &str) -> Result<String> {
     let body: Value = agent
         .get(&format!("https://crates.io/api/v1/crates/{krate}"))
         .set("user-agent", "sondir (https://github.com/rifuki/sondir)")

@@ -11,6 +11,7 @@ mod project;
 mod report;
 mod resolve;
 mod rpc;
+mod sweep;
 mod verify;
 mod watch;
 
@@ -78,6 +79,12 @@ enum Command {
         #[command(subcommand)]
         cmd: FactsCommand,
     },
+    /// Probe every ecosystem crate pair for conflicts the facts DB doesn't know yet.
+    Sweep {
+        /// Emit the sweep report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -138,6 +145,7 @@ fn run(cli: Cli) -> Result<i32> {
                 .unwrap_or_else(|| "https://api.devnet.solana.com".into());
             verify::run(&rpc_url, json)
         }
+        Command::Sweep { json } => sweep::run(json),
     }
 }
 
