@@ -136,38 +136,44 @@ pub fn resolve_probe(report: &mut Report, project: &Project, offline: bool) {
 /// Known unresolvable dependency pairs, straight from the facts DB. Reads BOTH
 /// the lockfile and the declared manifests (the lock lies after a failed
 /// resolve — canary c05).
-pub fn known_conflicts(report: &mut Report, project: &Project) {
+/// Conflicts from the facts DB whose EVERY probe crate is present in the
+/// workspace at a matching version — so each new facts entry automatically
+/// becomes a check. Shared by `doctor` (report) and `fix` (remediate). The
+/// `=3.0.0` sysvar escape hatch needs no special case: it simply fails the
+/// `>=3.0.1` probe req.
+pub fn applicable_conflicts(project: &Project) -> Vec<&'static facts::KnownConflict> {
     let declared = project.declared_deps();
+    facts::conflicts()
+        .iter()
+        .filter(|conflict| {
+            let probes: Vec<_> = conflict
+                .probe
+                .iter()
+                .filter_map(|spec| facts::parse_probe(spec))
+                .collect();
+            !probes.is_empty()
+                && probes.len() == conflict.probe.len()
+                && probes
+                    .iter()
+                    .all(|(name, req, _)| present_matching(project, &declared, name, req))
+        })
+        .collect()
+}
 
-    // Fully data-driven: a conflict fires when EVERY crate in its probe is
-    // present at a version matching the probe requirement — so each new facts
-    // entry automatically becomes a doctor check. The `=3.0.0` sysvar escape
-    // hatch needs no special case: it simply fails the `>=3.0.1` probe req.
+pub fn known_conflicts(report: &mut Report, project: &Project) {
     let mut conflict_hit = false;
-    for conflict in facts::conflicts() {
-        let probes: Vec<_> = conflict
-            .probe
-            .iter()
-            .filter_map(|spec| facts::parse_probe(spec))
-            .collect();
-        if probes.is_empty() || probes.len() != conflict.probe.len() {
-            continue; // unverifiable entries never fire in doctor
-        }
-        let applies = probes
-            .iter()
-            .all(|(name, req, _)| present_matching(project, &declared, name, req));
-        if applies {
-            report.fail(
-                "dep-conflict",
-                format!("{} × {}", conflict.a, conflict.b),
-                conflict.why.clone(),
-                Some(conflict.fix.clone()),
-            );
-            conflict_hit = true;
-        }
+    for conflict in applicable_conflicts(project) {
+        report.fail(
+            "dep-conflict",
+            format!("{} × {}", conflict.a, conflict.b),
+            conflict.why.clone(),
+            Some(conflict.fix.clone()),
+        );
+        conflict_hit = true;
     }
 
     if !conflict_hit {
+        let declared = project.declared_deps();
         let litesvm = project
             .locked
             .get("litesvm")

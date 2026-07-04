@@ -6,6 +6,7 @@
 
 mod checks;
 mod facts;
+mod fix;
 mod mcp;
 mod project;
 mod report;
@@ -85,6 +86,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Apply facts-DB dependency-pin remedies to Cargo.toml (dry-run unless --write).
+    Fix {
+        /// Workspace root (containing Anchor.toml / Cargo.toml).
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
+        /// Actually write the changes. Without this, fix only prints the plan.
+        #[arg(long)]
+        write: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -146,6 +156,10 @@ fn run(cli: Cli) -> Result<i32> {
             verify::run(&rpc_url, json)
         }
         Command::Sweep { json } => sweep::run(json),
+        Command::Fix { path, write } => {
+            let project = Project::load(&path)?;
+            fix::run(&project, write)
+        }
     }
 }
 

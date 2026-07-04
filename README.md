@@ -27,6 +27,10 @@ sondir doctor [--path <anchor-workspace>] [--url <rpc>] [--json] [--offline]
 sondir resolve anchor litesvm magicblock        # -> litesvm 0.12.0 + why, in seconds
 sondir resolve --list                           # known aliases (raw crate names work too)
 
+# apply the known dependency-pin remedies to Cargo.toml (DRY-RUN unless --write)
+sondir fix                                       # print the plan, touch nothing
+sondir fix --write                               # apply, verify it resolves, roll back if not
+
 # has an upstream release/gate unlocked a held-back upgrade yet? (cron/CI-friendly)
 sondir watch [--url <rpc>] [--json]             # exit 3 when a trigger fired
 
@@ -128,6 +132,25 @@ This repo runs it itself: `.github/workflows/watch.yml` executes `sondir watch` 
 opens/extends an alert issue on exit 3 — the unlock day gets noticed without anyone
 remembering to check. (Context: litesvm's maintainer confirmed an Agave-4.1-wave release is
 coming — [LiteSVM/litesvm#372](https://github.com/LiteSVM/litesvm/issues/372).)
+
+## fix
+
+`fix` closes the loop from diagnosis to remedy: it reads the same applicable conflicts as
+`doctor`, and for each one that carries a machine-applicable pin in the facts DB, edits your
+`Cargo.toml` to apply it. Safety is the whole design:
+
+- **Dry-run by default** — `sondir fix` prints the plan and writes nothing; only `--write`
+  mutates.
+- **Surgical, format-preserving edits** (via `toml_edit`): it changes *only* the version
+  string of the *exact* dependency a remedy names — features, comments, ordering, and every
+  other line stay byte-for-byte identical. Path/git deps and unrelated crates are never touched.
+- **Only facts-DB remedies** — never a guess, never a removal, never an on-chain or file op.
+- **Verify-then-keep** — after writing it re-resolves the workspace; if the pins didn't
+  actually make it resolve, every file is rolled back to its original bytes.
+
+So `sondir doctor` finds the litesvm × light-sdk conflict, and `sondir fix --write` turns
+`litesvm = "0.13.1"` into `litesvm = "0.12"` and confirms the build resolves — without
+disturbing anything else in the manifest.
 
 ## sweep
 

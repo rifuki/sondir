@@ -1,6 +1,6 @@
 [package]
 name = "sondir"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "sondir — the soil test before you build. Pre-flight checks and version compatibility for Solana toolchains."
 license = "MIT"
@@ -23,6 +23,7 @@ base64 = "0.22"
 solana-pubkey = { version = "4", features = ["curve25519", "sha2"] }
 flate2 = "1.1.9"
 semver = "1.0.28"
+toml_edit = "0.25.12"
 
 [profile.release]
 lto = true

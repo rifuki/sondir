@@ -46,6 +46,11 @@ pub struct KnownConflict {
     /// these deps must FAIL to resolve while the conflict is real.
     #[serde(default)]
     pub probe: Vec<String>,
+    /// Machine-applicable remedy for `sondir fix`: `"crate@req"` — pin this one
+    /// crate to this requirement to break the conflict. `None` = manual-only
+    /// (e.g. a removal, which `fix` never does automatically).
+    #[serde(default)]
+    pub fix_pin: Option<String>,
 }
 
 /// Parse one probe spec: `name@req` with optional `#features` suffix.

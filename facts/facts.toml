@@ -30,6 +30,7 @@ b = "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3"
 why = "litesvm 0.13.x pins solana-instruction =3.2.0 (Agave 4.0 wave) while the MagicBlock chain requires ^3.4 (Agave 4.1 wave); cargo cannot unify same-major exact vs caret. Unlocks when litesvm ships an Agave-4.1-wave release. NOTE: `anchor init` (CLI 1.1.2) templates ship litesvm 0.13.1, so fresh-project + MagicBlock hits this immediately (canary c05)."
 fix = "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release"
 probe = ["litesvm@>=0.13", "ephemeral-rollups-sdk@*#anchor,vrf"]
+fix_pin = "litesvm@0.12"
 
 [[conflicts]]
 id = "litesvm-instructions-sysvar"
@@ -38,6 +39,7 @@ b = "solana-instructions-sysvar >=3.0.1"
 why = "solana-instructions-sysvar 3.0.1 requires solana-instruction ^3.4.0; litesvm 0.13.x pins =3.2.0 (canary c06). Pin solana-instructions-sysvar to =3.0.0 (rides ^3.0.0) or drop litesvm to 0.12.x."
 fix = "pin solana-instructions-sysvar = \"=3.0.0\" or use litesvm 0.12.x"
 probe = ["litesvm@>=0.13", "solana-instructions-sysvar@>=3.0.1"]
+fix_pin = "litesvm@0.12"
 
 [[conflicts]]
 id = "legacy-solana-program"
@@ -58,6 +60,7 @@ b = "light-sdk >=0.24"
 why = "light-sdk 0.24 sits on the Agave-4.1 interface wave (solana-instruction ^3.4) while litesvm 0.13.x pins =3.2.0 — same schism as litesvm-magicblock (sweep discovery 2026-07-04). Escape: litesvm 0.12.x."
 fix = "downgrade litesvm to 0.12.x until litesvm ships its Agave-4.1-wave release"
 probe = ["litesvm@>=0.13", "light-sdk@>=0.24"]
+fix_pin = "litesvm@0.12"
 
 [[conflicts]]
 id = "mollusk-magicblock"
@@ -66,6 +69,7 @@ b = "ephemeral-rollups-sdk (vrf) / ephemeral-vrf-sdk >=0.3"
 why = "mollusk-svm 0.13.x has the SAME disease as litesvm 0.13.x: its agave-syscalls 4.0.0 pins the Agave-4.0 interface wave, unresolvable with MagicBlock's ^3.4 requirements (sweep discovery 2026-07-04). Escape: mollusk-svm 0.12.x."
 fix = "downgrade mollusk-svm to 0.12.x until mollusk ships an Agave-4.1-wave release"
 probe = ["mollusk-svm@>=0.13", "ephemeral-rollups-sdk@*#anchor,vrf"]
+fix_pin = "mollusk-svm@0.12"
 
 [[conflicts]]
 id = "mollusk-light"
@@ -74,6 +78,7 @@ b = "light-sdk >=0.24"
 why = "mollusk-svm 0.13.x (agave-syscalls 4.0.0, Agave-4.0 wave pins on solana-pubkey) cannot resolve with light-sdk 0.24's 4.1-wave requirements (sweep discovery 2026-07-04). Escape: mollusk-svm 0.12.x."
 fix = "downgrade mollusk-svm to 0.12.x until mollusk ships an Agave-4.1-wave release"
 probe = ["mollusk-svm@>=0.13", "light-sdk@>=0.24"]
+fix_pin = "mollusk-svm@0.12"
 
 [[conflicts]]
 id = "mollusk-instructions-sysvar"
@@ -82,6 +87,7 @@ b = "solana-instructions-sysvar >=3.0.1"
 why = "solana-instructions-sysvar 3.0.1+/4.x requires the Agave-4.1 interface wave; mollusk-svm 0.13.x pins the 4.0 wave via agave-syscalls 4.0.0 (sweep discovery 2026-07-04). Escape: mollusk-svm 0.12.x (or sysvar =3.0.0)."
 fix = "downgrade mollusk-svm to 0.12.x, or pin solana-instructions-sysvar = \"=3.0.0\""
 probe = ["mollusk-svm@>=0.13", "solana-instructions-sysvar@>=3.0.1"]
+fix_pin = "mollusk-svm@0.12"
 
 [[litesvm_runtimes]]
 prefix = "0.12."

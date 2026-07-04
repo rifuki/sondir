@@ -312,6 +312,31 @@ fn legacy_solana_program_is_a_declared_conflict() {
 }
 
 #[test]
+fn fix_dry_run_shows_the_plan_but_writes_nothing() {
+    let fixture = Fixture::healthy("fix-dry");
+    fixture.program_manifest(&["litesvm = \"0.13.1\"", "light-sdk = \"0.24.0\""]);
+    let manifest = fixture.root.join("programs/demo/Cargo.toml");
+    let before = fs::read_to_string(&manifest).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_sondir"))
+        .args(["fix", "--path"])
+        .arg(&fixture.root)
+        .output()
+        .expect("run sondir fix");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(stdout.contains("would apply"), "plan shown: {stdout}");
+    assert!(stdout.contains("litesvm"), "names the pin: {stdout}");
+    // The cardinal rule: a dry-run must not modify a single byte.
+    assert_eq!(fs::read_to_string(&manifest).unwrap(), before);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "dry-run with pending fixes exits 1"
+    );
+}
+
+#[test]
 fn sweep_discovered_mollusk_conflict_reaches_doctor_with_no_new_code() {
     // The mollusk entries were added ONLY to facts.toml (sweep discovery
     // 2026-07-04) — data-driven matching must surface them in doctor too.
