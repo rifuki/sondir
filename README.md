@@ -103,9 +103,10 @@ execution to re-check, so they stay marked `evidence`.
 
 Two layers keep the "it catches that" claims honest:
 
-- **Canary matrix** (`canary/`): intentionally conflict-prone Anchor projects validated
-  empirically end-to-end (resolve → build → test → devnet deploy → upgrade). Results in
-  `canary/results.md`; each confirmed behavior feeds back into the facts DB.
+- **Canary matrix** ([`canary/` in the repo](https://github.com/rifuki/sondir/tree/main/canary)):
+  intentionally conflict-prone Anchor projects validated empirically end-to-end
+  (resolve → build → test → devnet deploy → upgrade); each confirmed behavior feeds back
+  into the facts DB.
 - **Torture suite** (`tests/torture.rs`, runs in CI, fully offline): a fault-injection
   matrix — every real incident and canary discovery re-created as a one-mutation fixture
   (keypair drift, truncated/zero-byte/unknown-arch ELF, lockfile-only conflicts, caret-req
