@@ -20,7 +20,7 @@ serde_json = "1"
 toml = "0.8"
 ureq = { version = "2", features = ["json"] }
 base64 = "0.22"
-solana-pubkey = { version = "3", features = ["curve25519", "sha2"] }
+solana-pubkey = { version = "4", features = ["curve25519", "sha2"] }
 flate2 = "1.1.9"
 semver = "1.0.28"
 
