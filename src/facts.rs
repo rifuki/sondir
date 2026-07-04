@@ -112,10 +112,6 @@ pub fn conflicts() -> &'static [KnownConflict] {
     &facts().conflicts
 }
 
-pub fn conflict(id: &str) -> Option<&'static KnownConflict> {
-    facts().conflicts.iter().find(|c| c.id == id)
-}
-
 pub fn litesvm_runtimes() -> &'static [LitesvmRuntime] {
     &facts().litesvm_runtimes
 }
@@ -203,7 +199,7 @@ mod tests {
         assert_eq!(facts.gates.len(), 3);
         assert_eq!(facts.conflicts.len(), 7);
         assert_eq!(facts.litesvm_runtimes.len(), 2);
-        assert!(conflict("litesvm-magicblock").is_some());
+        assert!(facts.conflicts.iter().any(|c| c.id == "litesvm-magicblock"));
         // Every embedded conflict must be machine-verifiable by `facts verify`.
         for conflict in &facts.conflicts {
             assert!(

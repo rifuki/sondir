@@ -138,57 +138,25 @@ pub fn resolve_probe(report: &mut Report, project: &Project, offline: bool) {
 /// resolve — canary c05).
 pub fn known_conflicts(report: &mut Report, project: &Project) {
     let declared = project.declared_deps();
-    let has_magicblock_vrf = project.locked.contains_key("ephemeral-vrf-sdk")
-        || declared.contains_key("ephemeral-vrf-sdk")
-        || declared.contains_key("ephemeral-rollups-sdk");
 
-    // The lock and the manifest can disagree (stale lock after a failed
-    // resolve, canary c05: lock said 0.10.0 while the manifest declared
-    // 0.13.1) — treat EITHER source matching as a hit.
-    let is_013 = |v: &str| v.trim_start_matches(['^', '=', '~']).starts_with("0.13");
-    let locked_litesvm = project.locked.get("litesvm").cloned();
-    let declared_litesvm = declared.get("litesvm").cloned();
-    let litesvm_013 = locked_litesvm.as_deref().is_some_and(is_013)
-        || declared_litesvm.as_deref().is_some_and(is_013);
-
+    // Fully data-driven: a conflict fires when EVERY crate in its probe is
+    // present at a version matching the probe requirement — so each new facts
+    // entry automatically becomes a doctor check. The `=3.0.0` sysvar escape
+    // hatch needs no special case: it simply fails the `>=3.0.1` probe req.
     let mut conflict_hit = false;
-    if litesvm_013 && has_magicblock_vrf {
-        if let Some(conflict) = facts::conflict("litesvm-magicblock") {
-            report.fail(
-                "dep-conflict",
-                format!("{} × {}", conflict.a, conflict.b),
-                conflict.why.clone(),
-                Some(conflict.fix.clone()),
-            );
-            conflict_hit = true;
+    for conflict in facts::conflicts() {
+        let probes: Vec<_> = conflict
+            .probe
+            .iter()
+            .filter_map(|spec| facts::parse_probe(spec))
+            .collect();
+        if probes.is_empty() || probes.len() != conflict.probe.len() {
+            continue; // unverifiable entries never fire in doctor
         }
-    }
-
-    // litesvm 0.13 × instructions-sysvar >=3.0.1 (canary c06). `=3.0.0` is the
-    // one escape hatch, so only that exact pin is exempt.
-    if litesvm_013 {
-        if let Some(sysvar) = declared.get("solana-instructions-sysvar") {
-            if sysvar != "=3.0.0" {
-                if let Some(conflict) = facts::conflict("litesvm-instructions-sysvar") {
-                    report.fail(
-                        "dep-conflict",
-                        format!("{} × {}", conflict.a, conflict.b),
-                        conflict.why.clone(),
-                        Some(conflict.fix.clone()),
-                    );
-                    conflict_hit = true;
-                }
-            }
-        }
-    }
-
-    // Legacy solana-program 1.x inside a modern workspace (canary c19).
-    let legacy_solana_program = declared
-        .get("solana-program")
-        .or_else(|| project.locked.get("solana-program"))
-        .is_some_and(|v| v.trim_start_matches(['^', '=', '~']).starts_with("1."));
-    if legacy_solana_program {
-        if let Some(conflict) = facts::conflict("legacy-solana-program") {
+        let applies = probes
+            .iter()
+            .all(|(name, req, _)| present_matching(project, &declared, name, req));
+        if applies {
             report.fail(
                 "dep-conflict",
                 format!("{} × {}", conflict.a, conflict.b),
@@ -200,7 +168,12 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
     }
 
     if !conflict_hit {
-        if let Some(version) = locked_litesvm.or(declared_litesvm) {
+        let litesvm = project
+            .locked
+            .get("litesvm")
+            .or_else(|| declared.get("litesvm"))
+            .cloned();
+        if let Some(version) = litesvm {
             let version = version.trim_start_matches(['^', '=', '~']);
             if let Some(runtime) = facts::litesvm_runtime(version) {
                 report.info(
@@ -211,6 +184,67 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
             }
         }
     }
+}
+
+/// Crates that mark the same stack under two names (one pulls the other), so a
+/// probe naming one is satisfied by either appearing in the workspace.
+const EQUIVALENT_CRATES: &[(&str, &str)] = &[("ephemeral-rollups-sdk", "ephemeral-vrf-sdk")];
+
+/// Is `name` present in the workspace (declared manifests OR lockfile — the
+/// lock lies after a failed resolve, canary c05) at a version matching `req`?
+fn present_matching(
+    project: &Project,
+    declared: &std::collections::BTreeMap<String, String>,
+    name: &str,
+    req: &str,
+) -> bool {
+    let mut names = vec![name];
+    for (a, b) in EQUIVALENT_CRATES {
+        if *a == name {
+            names.push(b);
+        } else if *b == name {
+            names.push(a);
+        }
+    }
+    names.iter().any(|n| {
+        [project.locked.get(*n), declared.get(*n)]
+            .into_iter()
+            .flatten()
+            .any(|raw| version_matches(raw, req))
+    })
+}
+
+fn version_matches(raw: &str, req: &str) -> bool {
+    let Ok(req) = semver::VersionReq::parse(req) else {
+        return false;
+    };
+    lowest_version(raw).is_some_and(|version| req.matches(&version))
+}
+
+/// Interpret a locked version or declared requirement as its minimal concrete
+/// version: strip operators, take the first comma-part, pad to x.y.z. A bare
+/// `*` yields None — no version information, so it never triggers a conflict.
+fn lowest_version(raw: &str) -> Option<semver::Version> {
+    let core = raw
+        .split(',')
+        .next()?
+        .trim()
+        .trim_start_matches(['^', '=', '~', '>', '<', ' ']);
+    if let Ok(version) = semver::Version::parse(core) {
+        return Some(version);
+    }
+    let mut parts: Vec<&str> = core.split('.').collect();
+    if core.is_empty()
+        || parts
+            .iter()
+            .any(|p| p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()))
+    {
+        return None;
+    }
+    while parts.len() < 3 {
+        parts.push("0");
+    }
+    semver::Version::parse(&parts.join(".")).ok()
 }
 
 /// Cluster feature gates that change deploy semantics.
@@ -809,6 +843,27 @@ fn strip_trailing_zeros(bytes: &[u8]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lowest_version_normalizes_reqs_and_rejects_wildcards() {
+        let v = |s: &str| lowest_version(s).map(|v| v.to_string());
+        assert_eq!(v("0.13.1"), Some("0.13.1".into()));
+        assert_eq!(v("^0.13"), Some("0.13.0".into()));
+        assert_eq!(v("=3.0.0"), Some("3.0.0".into()));
+        assert_eq!(v(">=1.14, <2"), Some("1.14.0".into()));
+        assert_eq!(v("*"), None);
+        assert_eq!(v("not-a-version"), None);
+    }
+
+    #[test]
+    fn version_matches_honours_the_sysvar_escape_hatch() {
+        assert!(version_matches("3.0.1", ">=3.0.1"));
+        assert!(version_matches("4.0.0", ">=3.0.1"));
+        assert!(!version_matches("=3.0.0", ">=3.0.1"));
+        assert!(version_matches("0.13.1", ">=0.13"));
+        assert!(!version_matches("0.12.0", ">=0.13"));
+        assert!(version_matches("0.15.5", "*"));
+    }
 
     #[test]
     fn strip_trailing_zeros_ignores_padding_but_keeps_interior_zeros() {

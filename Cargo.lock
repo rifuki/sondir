@@ -907,12 +907,13 @@ dependencies = [
 
 [[package]]
 name = "sondir"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64",
  "clap",
  "flate2",
+ "semver",
  "serde",
  "serde_json",
  "solana-pubkey",
