@@ -8,6 +8,9 @@ repository = "https://github.com/rifuki/sondir"
 readme = "README.md"
 keywords = ["solana", "anchor", "preflight", "mcp", "toolchain"]
 categories = ["command-line-utilities", "development-tools"]
+# Dev/internal artifacts — not part of the shipped tool. facts/ IS shipped
+# (embedded via include_str!), so it stays.
+exclude = ["docs/", "canary/", ".github/"]
 
 [dependencies]
 anyhow = "1"
