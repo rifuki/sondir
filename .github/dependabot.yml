@@ -1,0 +1,18 @@
+# Keep GitHub Actions and Cargo dependencies current automatically — the
+# best-practice complement to major-tag pinning: readable `@vN` tags in the
+# workflows, Dependabot bumps them (and Cargo deps) as new versions ship.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
