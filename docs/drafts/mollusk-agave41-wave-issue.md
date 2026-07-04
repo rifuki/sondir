@@ -1,9 +1,7 @@
-# DRAFT — mollusk upstream issue (NOT FILED)
+# mollusk upstream issue — FILED
 
-> Status: draft, awaiting owner go-ahead before filing at
-> https://github.com/anza-xyz/mollusk/issues . Nothing has been posted.
-> Companion to LiteSVM/litesvm#372 (maintainer there confirmed an Agave-4.1-wave
-> release is coming); also draft a cross-reference comment on #372 (below).
+> Status: FILED 2026-07-04 as https://github.com/anza-xyz/mollusk/issues/270 and the
+> #372 cross-ref comment POSTED (issuecomment-4880204517) — owner approved both.
 
 **Title:** `0.13.x (via agave-syscalls 4.0.0) pins the Agave-4.0 interface wave — unresolvable with the ^3.4/4.x ecosystem (MagicBlock VRF, light-sdk 0.24, solana-instructions-sysvar ≥3.0.1)`
 
@@ -61,12 +59,12 @@ the probe manifests.
 
 ---
 
-# DRAFT — cross-reference comment for LiteSVM/litesvm#372 (NOT POSTED)
+# cross-reference comment for LiteSVM/litesvm#372 — POSTED
 
 > For context on the issue we already filed. Post only with owner go-ahead.
 
 FWIW, this turns out to be ecosystem-wide across the SVM test harnesses: `mollusk-svm`
 0.13.x has the same shape via its `agave-syscalls 4.0.0` pins (breaks against MagicBlock
 VRF, `light-sdk` 0.24 and `solana-instructions-sysvar` ≥3.0.1; `0.12.x` resolves) —
-reported at anza-xyz/mollusk#<N>. A 4.1-wave litesvm release would resolve the largest
+reported at anza-xyz/mollusk#270. A 4.1-wave litesvm release would resolve the largest
 share of these, thanks for picking it up.
