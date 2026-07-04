@@ -126,12 +126,26 @@ pub fn litesvm_runtime(version: &str) -> Option<&'static LitesvmRuntime> {
 /// BPF upgradeable loader (loader-v3) program id.
 pub const UPGRADEABLE_LOADER: &str = "BPFLoaderUpgradeab1e11111111111111111111111";
 
-/// Bytes of bincode metadata before the ELF in a ProgramData account
-/// (`UpgradeableLoaderState::size_of_programdata_metadata()`).
-pub const PROGRAMDATA_METADATA_LEN: u64 = 45;
+/// Bincode variant tag width for `UpgradeableLoaderState` (default bincode
+/// serializes an enum discriminant as a u32).
+const LOADER_VARIANT_TAG_LEN: usize = 4;
 
-/// Bytes of bincode metadata before the ELF in a Buffer account.
-pub const BUFFER_METADATA_LEN: u64 = 37;
+/// Bytes of bincode metadata before the ELF in a ProgramData account
+/// (`UpgradeableLoaderState::size_of_programdata_metadata()`): variant tag(4) +
+/// slot u64(8) + Option<Pubkey> tag(1) + Pubkey(32) = 45.
+pub const PROGRAMDATA_METADATA_LEN: u64 = (LOADER_VARIANT_TAG_LEN + 8 + 1 + 32) as u64;
+
+/// Bytes of bincode metadata before the ELF in a Buffer account
+/// (`size_of_buffer_metadata()`): variant tag(4) + Option<Pubkey> tag(1) + Pubkey(32) = 37.
+pub const BUFFER_METADATA_LEN: u64 = (LOADER_VARIANT_TAG_LEN + 1 + 32) as u64;
+
+/// The `UpgradeableLoaderState::ProgramData` bincode variant discriminant, as
+/// the 4-byte LE prefix. Guards the authority parse against reading a Buffer or
+/// Program account with ProgramData offsets.
+pub const PROGRAMDATA_VARIANT_TAG: [u8; 4] = [3, 0, 0, 0];
+
+/// Byte offset of the `Option<Pubkey>` tag inside ProgramData: tag(4) + slot(8).
+pub const PROGRAMDATA_AUTHORITY_OPTION_OFFSET: usize = LOADER_VARIANT_TAG_LEN + 8;
 
 /// SIMD-0431: Loader-v3 minimum extend size, in bytes.
 pub const MIN_EXTEND_BYTES: u64 = 10_240;
@@ -144,8 +158,18 @@ pub const PROGRAM_METADATA_PROGRAM: &str = "ProgM6JCCvbYkfKqJYHePx4xxSUSqJp7rh8L
 /// account that does not exist; the padded form matches anchor's writes).
 pub const IDL_SEED_PADDED: [u8; 16] = *b"idl\0\0\0\0\0\0\0\0\0\0\0\0\0";
 
-/// Bytes of Program Metadata `Header` before the data (repr(C), align 1).
+/// Program Metadata `Header` byte layout (verified vs solana-program/program-metadata
+/// `program/src/state/header.rs`; `#[repr(C)]`, 1-byte align; `ZeroableOption<Address>`
+/// is `#[repr(transparent)]` = 32 bytes, no tag byte). Fields:
+///   discriminator(1)@0 program(32)@1 authority(32)@33 mutable(1)@65 canonical(1)@66
+///   seed(16)@67 encoding(1)@83 compression(1)@84 format(1)@85 data_source(1)@86
+///   data_length(u32 LE,4)@87 padding(5)@91 → data@96.
 pub const METADATA_HEADER_LEN: usize = 96;
+pub const METADATA_COMPRESSION_OFFSET: usize = 84;
+pub const METADATA_DATA_SOURCE_OFFSET: usize = 86;
+pub const METADATA_DATA_LENGTH_OFFSET: usize = 87;
+/// Metadata account discriminator for an initialized `Metadata` (0=Empty,1=Buffer,2=Metadata).
+pub const METADATA_DISCRIMINATOR: u8 = 2;
 
 /// SBPF arch flag (ELF e_flags word at byte offset 48) vs cluster deploy rules.
 ///
@@ -211,6 +235,31 @@ mod tests {
                 assert!(parse_probe(spec).is_some(), "malformed probe: {spec}");
             }
         }
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)] // the point IS to guard the constants
+    fn domain_constants_match_documented_derivation() {
+        // Audit 2026-07-04: pin every Solana byte-layout
+        // constant to its derivation so an accidental edit can't silently make
+        // sondir give wrong advice.
+        assert_eq!(PROGRAMDATA_METADATA_LEN, 45, "tag4 + slot8 + opt1 + key32");
+        assert_eq!(BUFFER_METADATA_LEN, 37, "tag4 + opt1 + key32");
+        assert_eq!(PROGRAMDATA_AUTHORITY_OPTION_OFFSET, 12, "tag4 + slot8");
+        // 13..45 must be exactly a 32-byte pubkey.
+        assert_eq!(
+            PROGRAMDATA_METADATA_LEN as usize - (PROGRAMDATA_AUTHORITY_OPTION_OFFSET + 1),
+            32
+        );
+        // Program Metadata header: every field offset stays within the 96-byte header.
+        assert_eq!(METADATA_HEADER_LEN, 96);
+        assert!(METADATA_COMPRESSION_OFFSET < METADATA_HEADER_LEN);
+        assert!(METADATA_DATA_SOURCE_OFFSET < METADATA_HEADER_LEN);
+        assert!(METADATA_DATA_LENGTH_OFFSET + 4 <= METADATA_HEADER_LEN);
+        // IDL seed = "idl" then zero padding to SEED_LEN 16.
+        assert_eq!(&IDL_SEED_PADDED[..3], b"idl");
+        assert!(IDL_SEED_PADDED[3..].iter().all(|&b| b == 0));
+        assert_eq!(IDL_SEED_PADDED.len(), 16);
     }
 
     #[test]

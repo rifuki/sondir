@@ -556,9 +556,21 @@ pub fn upgrade_preflight(
             }
         }
 
-        // Upgrade authority: bincode ProgramData = tag(4) + slot(8) + Option<Pubkey>(1+32).
-        if let (Some(wallet), Some(1)) = (&wallet, account.data.get(12).copied()) {
-            if let Some(authority_bytes) = account.data.get(13..45) {
+        // Upgrade authority: bincode ProgramData = variant(4) + slot(8) + Option<Pubkey>(1+32).
+        // Guard on the variant tag first — reading these offsets on a non-ProgramData
+        // account would misinterpret unrelated bytes as an authority.
+        let is_programdata = account
+            .data
+            .get(..4)
+            .is_some_and(|tag| tag == facts::PROGRAMDATA_VARIANT_TAG);
+        let option_byte = account
+            .data
+            .get(facts::PROGRAMDATA_AUTHORITY_OPTION_OFFSET)
+            .copied();
+        let key_start = facts::PROGRAMDATA_AUTHORITY_OPTION_OFFSET + 1;
+        let key_end = facts::PROGRAMDATA_METADATA_LEN as usize;
+        if let (true, Some(wallet), Some(1)) = (is_programdata, &wallet, option_byte) {
+            if let Some(authority_bytes) = account.data.get(key_start..key_end) {
                 let authority = Pubkey::try_from(authority_bytes)
                     .map(|k| k.to_string())
                     .unwrap_or_default();
@@ -784,22 +796,25 @@ enum OnChainIdl {
 /// data_length LE) followed by the document bytes.
 fn on_chain_idl_json(data: &[u8]) -> OnChainIdl {
     use std::io::Read;
-    if data.len() < facts::METADATA_HEADER_LEN || data[0] != 2 {
+    if data.len() < facts::METADATA_HEADER_LEN || data[0] != facts::METADATA_DISCRIMINATOR {
         return OnChainIdl::NotComparable(format!(
             "account is not an initialized metadata account (discriminator {:?})",
             data.first()
         ));
     }
-    let data_source = data[86];
+    let data_source = data[facts::METADATA_DATA_SOURCE_OFFSET];
     if data_source != 0 {
         return OnChainIdl::NotComparable(
             "IDL is stored as a url/external pointer, not directly on chain".into(),
         );
     }
-    let declared_len = u32::from_le_bytes([data[87], data[88], data[89], data[90]]) as usize;
+    let len_bytes =
+        &data[facts::METADATA_DATA_LENGTH_OFFSET..facts::METADATA_DATA_LENGTH_OFFSET + 4];
+    let declared_len =
+        u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]) as usize;
     let body = &data[facts::METADATA_HEADER_LEN..];
     let body = &body[..declared_len.min(body.len())];
-    let inflated: Vec<u8> = match data[84] {
+    let inflated: Vec<u8> = match data[facts::METADATA_COMPRESSION_OFFSET] {
         0 => body.to_vec(),
         1 => {
             let mut out = Vec::new();
