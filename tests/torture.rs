@@ -312,6 +312,23 @@ fn legacy_solana_program_is_a_declared_conflict() {
 }
 
 #[test]
+fn sweep_discovered_mollusk_conflict_reaches_doctor_with_no_new_code() {
+    // The mollusk entries were added ONLY to facts.toml (sweep discovery
+    // 2026-07-04) — data-driven matching must surface them in doctor too.
+    let fixture = Fixture::healthy("mollusk");
+    fixture.program_manifest(&[
+        "mollusk-svm = \"0.13.4\"",
+        "ephemeral-rollups-sdk = { version = \"0.15.5\", features = [\"anchor\", \"vrf\"] }",
+    ]);
+    let (report, exit) = fixture.doctor();
+    assert!(
+        has(&report, "dep-conflict", "fail", "mollusk-svm"),
+        "report: {report}"
+    );
+    assert_eq!(exit, 1);
+}
+
+#[test]
 fn non_local_cluster_warns_about_anchor_test_deploys() {
     let fixture = Fixture::healthy("footgun");
     fixture.anchor_toml("devnet", &program_id_a().to_string());
