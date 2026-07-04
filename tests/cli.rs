@@ -103,6 +103,10 @@ fn mcp_server_handshakes_and_lists_tools() {
         "\n",
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         "\n",
+        r#"{"jsonrpc":"2.0","id":3,"method":"resources/list"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"sondir://facts"}}"#,
+        "\n",
     );
     child
         .stdin
@@ -113,23 +117,45 @@ fn mcp_server_handshakes_and_lists_tools() {
     let out = child.wait_with_output().expect("wait mcp");
     let stdout = String::from_utf8_lossy(&out.stdout);
 
-    // One JSON object per line; the notification produced no line, so exactly two.
+    // One JSON object per line; the notification produced no line, so exactly four.
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert_eq!(lines.len(), 2, "expected 2 responses, got: {stdout}");
+    assert_eq!(lines.len(), 4, "expected 4 responses, got: {stdout}");
 
     let init: serde_json::Value = serde_json::from_str(lines[0]).expect("init json");
     assert_eq!(init["id"], 1);
     assert_eq!(init["result"]["serverInfo"]["name"], "sondir");
+    assert!(init["result"]["capabilities"]["resources"].is_object());
 
     let list: serde_json::Value = serde_json::from_str(lines[1]).expect("list json");
     assert_eq!(list["id"], 2);
-    let names: Vec<&str> = list["result"]["tools"]
-        .as_array()
-        .expect("tools array")
-        .iter()
-        .filter_map(|t| t["name"].as_str())
-        .collect();
+    let tools = list["result"]["tools"].as_array().expect("tools array");
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"sondir_doctor"), "tools: {names:?}");
     assert!(names.contains(&"sondir_resolve"), "tools: {names:?}");
     assert!(names.contains(&"sondir_watch"), "tools: {names:?}");
+    assert!(names.contains(&"sondir_facts_verify"), "tools: {names:?}");
+    assert!(
+        tools
+            .iter()
+            .all(|t| t["annotations"]["readOnlyHint"] == true),
+        "every tool must be marked read-only"
+    );
+
+    let resources: serde_json::Value = serde_json::from_str(lines[2]).expect("resources json");
+    let uris: Vec<&str> = resources["result"]["resources"]
+        .as_array()
+        .expect("resources array")
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(uris.contains(&"sondir://facts"), "resources: {uris:?}");
+
+    let read: serde_json::Value = serde_json::from_str(lines[3]).expect("read json");
+    let text = read["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("facts text");
+    assert!(
+        text.contains("[[conflicts]]") && text.contains("litesvm-magicblock"),
+        "facts resource must serve the TOML"
+    );
 }

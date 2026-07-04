@@ -29,6 +29,10 @@ sondir watch [--url <rpc>] [--json]             # exit 3 when a trigger fired
 # re-verify every facts entry against its live source (exit 4 when one went stale)
 sondir facts verify [--url <rpc>] [--json]
 
+# probe every ecosystem crate pair at latest x latest for conflicts the facts DB
+# doesn't know yet (exit 5 on new candidates)
+sondir sweep [--json]
+
 # run as an MCP server so an AI agent can call doctor/resolve/watch/facts-verify
 sondir mcp                                       # stdio, newline-delimited JSON-RPC
 
@@ -120,12 +124,29 @@ opens/extends an alert issue on exit 3 — the unlock day gets noticed without a
 remembering to check. (Context: litesvm's maintainer confirmed an Agave-4.1-wave release is
 coming — [LiteSVM/litesvm#372](https://github.com/LiteSVM/litesvm/issues/372).)
 
+## sweep
+
+`sondir sweep` turns the facts DB from a record of past crashes into a radar: every pair of
+ecosystem crates is probed through cargo's resolver at **latest × latest** (what two
+`cargo add`s produce). A failing pair is classified — *hard* (no version combination exists)
+or *latest-only* (cargo escapes by backtracking one side; the report shows the escape
+versions) — and matched against known conflicts. Anything unknown is a NEW candidate, exit
+code 5, and the weekly CI run (`.github/workflows/sweep.yml`) opens an issue for it.
+
+Its first live run (2026-07-04) found **four conflicts recorded nowhere**: mollusk-svm
+0.13.x turns out to carry the same Agave-4.0-wave exact pins as litesvm 0.13.x (via
+agave-syscalls 4.0.0), breaking against MagicBlock VRF, light-sdk 0.24 and
+instructions-sysvar ≥3.0.1 — plus litesvm 0.13 × light-sdk. All four are now facts entries
+with pinned probes, so `facts verify` guards them daily.
+
 ## MCP server
 
 `sondir mcp` speaks the Model Context Protocol over stdio (newline-delimited JSON-RPC 2.0),
-exposing three tools to an AI agent: `sondir_doctor`, `sondir_resolve`, `sondir_watch`. Each
-reuses the exact same code path as the CLI, so an agent gets identical results. Point any MCP
-client at the `sondir mcp` command — no network server, no ports.
+exposing four read-only tools (`sondir_doctor`, `sondir_resolve`, `sondir_watch`,
+`sondir_facts_verify`, all marked `readOnlyHint`) and two resources: `sondir://facts` (the
+facts DB as TOML) and `sondir://watch` (live trigger status as JSON). Each reuses the exact
+same code path as the CLI, so an agent gets identical results. Point any MCP client at the
+`sondir mcp` command — no network server, no ports.
 
 ## Roadmap
 

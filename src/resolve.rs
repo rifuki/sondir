@@ -212,6 +212,20 @@ const REMEDIES: &[Remedy] = &[
         pin_req: "=3.0.0",
         why: "instructions-sysvar 3.0.1+ requires solana-instruction ^3.4; =3.0.0 rides ^3.0 and coexists with litesvm 0.13's =3.2.0 pin — canary c06/c07",
     },
+    Remedy {
+        requested_contains: "mollusk-svm",
+        stderr_contains: "solana-instruction",
+        pin_crate: "mollusk-svm",
+        pin_req: "<0.13",
+        why: "mollusk-svm 0.13.x pins the Agave-4.0 interface wave via agave-syscalls 4.0.0, conflicting with the ^3.4 ecosystem; 0.12.x resolves — sweep discovery 2026-07-04",
+    },
+    Remedy {
+        requested_contains: "mollusk-svm",
+        stderr_contains: "solana-pubkey",
+        pin_crate: "mollusk-svm",
+        pin_req: "<0.13",
+        why: "mollusk-svm 0.13.x pins the Agave-4.0 interface wave via agave-syscalls 4.0.0, conflicting with the ^3.4/4.x ecosystem; 0.12.x resolves — sweep discovery 2026-07-04",
+    },
 ];
 
 pub fn list_aliases() {
