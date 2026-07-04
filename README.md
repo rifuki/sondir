@@ -1,5 +1,9 @@
 # sondir
 
+[![crates.io](https://img.shields.io/crates/v/sondir.svg)](https://crates.io/crates/sondir)
+[![CI](https://github.com/rifuki/sondir/actions/workflows/ci.yml/badge.svg)](https://github.com/rifuki/sondir/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 > **sondir** (Indonesian, from Dutch *sonderen*): the soil penetration test you run
 > **before you build** — so the foundation doesn't surprise you later.
 
