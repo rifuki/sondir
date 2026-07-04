@@ -159,7 +159,7 @@ pub fn run_doctor(path: &std::path::Path, url: Option<&str>, offline: bool) -> R
 
     let built = project.artifacts();
     // Purely local (keypair files vs Anchor.toml) — must run in offline mode too.
-    checks::keypair_drift(&mut report, &built);
+    checks::keypair_drift(&mut report, &project);
 
     if offline {
         report.info("offline", "offline mode", "cluster checks skipped");

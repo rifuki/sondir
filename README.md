@@ -91,11 +91,20 @@ suddenly resolves means upstream fixed it — the entry reports `STALE` and the 
 4, which the daily watch workflow turns into an alert issue. Runtime arch claims need a VM
 execution to re-check, so they stay marked `evidence`.
 
-## Canary matrix
+## Battle-testing
 
-`canary/` holds a matrix of intentionally conflict-prone Anchor projects used to validate
-sondir's facts empirically (resolve → build → test → devnet deploy → upgrade). Results in
-`canary/results.md`; each confirmed behavior feeds back into `src/facts.rs`.
+Two layers keep the "it catches that" claims honest:
+
+- **Canary matrix** (`canary/`): intentionally conflict-prone Anchor projects validated
+  empirically end-to-end (resolve → build → test → devnet deploy → upgrade). Results in
+  `canary/results.md`; each confirmed behavior feeds back into the facts DB.
+- **Torture suite** (`tests/torture.rs`, runs in CI, fully offline): a fault-injection
+  matrix — every real incident and canary discovery re-created as a one-mutation fixture
+  (keypair drift, truncated/zero-byte/unknown-arch ELF, lockfile-only conflicts, caret-req
+  conflicts, multi-program drift, URL clusters, unresolvable workspaces) asserting the
+  exact finding code + severity, plus a healthy baseline asserting **no false alarms**.
+  Writing it immediately caught a real gap: drift was invisible until the first build
+  (`anchor deploy` builds first, then targets the stray keypair) — fixed, test pinned.
 
 ## watch
 
@@ -129,9 +138,11 @@ client at the `sondir mcp` command — no network server, no ports.
 ## Design notes
 
 - Read-only by construction: sondir never sends a transaction.
-- Shells out to `solana-keygen pubkey` / `anchor --version` instead of pulling ed25519 or
-  CLI internals into the dependency tree.
-- Facts live in `src/facts.rs`; each entry states its consequence so checks stay declarative.
+- No CLI dependencies for the core checks: keypair addresses are read directly from the
+  64-byte keypair file (`[secret(32) || pubkey(32)]`) — no `solana-keygen` needed; only the
+  toolchain-version check shells out (to the tools it is reporting on).
+- Facts live in `facts/facts.toml`; each entry states its consequence and cites its
+  evidence, and `facts verify` re-checks the claims against live sources.
 
 ## License
 

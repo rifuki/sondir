@@ -338,27 +338,28 @@ pub fn artifacts(report: &mut Report, project: &Project, built: &[Artifact], gat
 /// NOT the id in Anchor.toml or `declare_id!`. When they disagree, deploys land
 /// on a different (possibly fresh) program id while the code self-identifies as
 /// another — the classic silent-wrong-address incident.
-pub fn keypair_drift(report: &mut Report, built: &[Artifact]) {
-    for artifact in built {
-        let Some(config_id) = &artifact.program_id else {
-            continue;
-        };
-        let keypair_path = artifact
-            .so_path
-            .with_file_name(format!("{}-keypair.json", artifact.name.replace('-', "_")));
+pub fn keypair_drift(report: &mut Report, project: &Project) {
+    // Iterate Anchor.toml programs, NOT built artifacts: `anchor deploy` builds
+    // first and then targets the keypair, so a stray keypair drifts the deploy
+    // even when no .so exists yet (torture-suite gap, 2026-07-04).
+    for (name, config_id) in project.program_ids() {
+        let keypair_path = project
+            .root
+            .join("target/deploy")
+            .join(format!("{}-keypair.json", name.replace('-', "_")));
         let Ok(keypair_id) = keypair_pubkey(&keypair_path) else {
             continue;
         };
-        if &keypair_id == config_id {
+        if keypair_id == config_id {
             report.ok(
                 "keypair-drift",
-                format!("{}: deploy keypair matches Anchor.toml", artifact.name),
+                format!("{name}: deploy keypair matches Anchor.toml"),
                 config_id.clone(),
             );
         } else {
             report.fail(
                 "keypair-drift",
-                format!("{}: deploy keypair != Anchor.toml program id", artifact.name),
+                format!("{name}: deploy keypair != Anchor.toml program id"),
                 format!(
                     "anchor deploy will target {keypair_id}\nAnchor.toml declares    {config_id}\n(declare_id! may be a third value — anchor build warns about that one)"
                 ),
