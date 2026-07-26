@@ -90,7 +90,17 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 | c23 | `sondir fix --write` against a synthetic workspace on litesvm 0.13.1 + instructions-sysvar 3.0.1, then mollusk-svm 0.13.4 + the same | **both remedies hold end-to-end**: 0.13.1 -> 0.14 and 0.13.4 -> 0.14, each passing verify-then-keep (workspace re-resolves, no rollback). The flipped `fix_pin` direction is proven, not just asserted |
 | c22 | bare `cargo add litesvm@0.14/0.15` with **no lockfile** | **COMPILE FAIL** (E0277): `solana-address 2.7.0` + `solana-message 4.4.0` moved to `wincode ^0.6.0` while `solana-instruction 3.4.0` (newest) still derives its schema impls from `wincode ^0.5.0`. Both wincode majors land in one graph and `Pubkey` fails the trait bound |
 
+| c24 | `sondir sweep` (66 pairs, latest × latest) after the thaw | **66 probed, 66 clean, 0 hits** — and that is the finding, not the good news: see discovery 12 |
+
 ### Discoveries
+
+12. **The radar's blind spot, demonstrated live (c24).** Sweep reported the ecosystem
+    entirely clean on the same day c22 proved a fresh `cargo add litesvm@0.15` cannot be
+    COMPILED. Both statements are true: the wincode 0.5/0.6 split resolves perfectly, so
+    every resolve-level probe walks past it. An all-clear from `sweep` currently means
+    "no version-selection conflicts", NOT "a fresh project builds" — and nothing in the
+    tool says so. This is the strongest argument yet for a compile-level fact category;
+    until it exists, sweep's green is narrower than it reads.
 
 9. **The arch trap inverted (c21).** Under litesvm ≥0.14 every arch executes, so a green
    `cargo test` no longer implies a deployable artifact — SIMD-0500 still bars v0/v1/v2 at
