@@ -87,6 +87,7 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 | — | litesvm 0.14.0 (2026-07-13) dep metadata | `solana-instruction` `=3.2.0` → **`^3.4.0`**, agave-* → `^4.1.1`: the Agave-4.1-wave release the DB was waiting on. Conflicts rebounded `>=0.13` → `>=0.13, <0.14`, remedies flipped from downgrade-to-0.12 to upgrade-to-0.14 |
 | — | mollusk-svm 0.14.0 (2026-07-08) dep metadata | drops `agave-syscalls`, rides `^4.1.1`. Same rebound for the three mollusk entries |
 | c21 | arch v1/v2/v3 `.so` executed under litesvm 0.14.0 **and** 0.15.0 | **all three EXECUTE** (program body confirmed via `Program log:`; truncated + garbage ELF controls correctly `LOAD FAIL`). The 0.12/0.13 arch trap is GONE → new `litesvm_runtimes` rows `arch_ok = [1,2,3]` |
+| c23 | `sondir fix --write` against a synthetic workspace on litesvm 0.13.1 + instructions-sysvar 3.0.1, then mollusk-svm 0.13.4 + the same | **both remedies hold end-to-end**: 0.13.1 -> 0.14 and 0.13.4 -> 0.14, each passing verify-then-keep (workspace re-resolves, no rollback). The flipped `fix_pin` direction is proven, not just asserted |
 | c22 | bare `cargo add litesvm@0.14/0.15` with **no lockfile** | **COMPILE FAIL** (E0277): `solana-address 2.7.0` + `solana-message 4.4.0` moved to `wincode ^0.6.0` while `solana-instruction 3.4.0` (newest) still derives its schema impls from `wincode ^0.5.0`. Both wincode majors land in one graph and `Pubkey` fails the trait bound |
 
 ### Discoveries
