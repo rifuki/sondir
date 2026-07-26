@@ -227,7 +227,7 @@ mod tests {
         let facts = embedded();
         assert_eq!(facts.gates.len(), 3);
         assert_eq!(facts.conflicts.len(), 7);
-        assert_eq!(facts.litesvm_runtimes.len(), 2);
+        assert_eq!(facts.litesvm_runtimes.len(), 4);
         assert!(facts.conflicts.iter().any(|c| c.id == "litesvm-magicblock"));
         // Every embedded conflict must be machine-verifiable by `facts verify`.
         for conflict in &facts.conflicts {
@@ -320,8 +320,18 @@ mod tests {
         assert_eq!(runtime.arch_ok, vec![3]);
     }
 
+    /// The Agave-4.1 runtimes dropped the arch trap: every arch executes, so a
+    /// green `cargo test` no longer implies a deployable artifact (canary c21).
+    #[test]
+    fn litesvm_014_and_015_execute_every_arch() {
+        for version in ["0.14.0", "0.15.0"] {
+            let runtime = litesvm_runtime(version).expect("known version");
+            assert_eq!(runtime.arch_ok, vec![1, 2, 3], "litesvm {version}");
+        }
+    }
+
     #[test]
     fn unknown_litesvm_yields_no_claim() {
-        assert!(litesvm_runtime("0.14.0").is_none());
+        assert!(litesvm_runtime("0.11.0").is_none());
     }
 }

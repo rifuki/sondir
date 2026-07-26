@@ -24,7 +24,7 @@ front from local files + RPC reads. `sondir` knows them now.
 sondir doctor [--path <anchor-workspace>] [--url <rpc>] [--json] [--offline]
 
 # find a mutually-compatible version set for the deps you want
-sondir resolve anchor litesvm magicblock        # -> litesvm 0.12.0 + why, in seconds
+sondir resolve anchor litesvm magicblock        # -> litesvm 0.15.0 + why, in seconds
 sondir resolve --list                           # known aliases (raw crate names work too)
 
 # apply the known dependency-pin remedies to Cargo.toml (DRY-RUN unless --write)
@@ -87,7 +87,7 @@ is derived from a failure that actually happened and is fully predictable from
 resolver do the search, then reads the answer from the lockfile: exact versions, "pivot"
 crates that reveal which Agave interface wave you landed on, and runtime notes (e.g. which
 SBPF arch your litesvm needs). When resolution fails it retries with facts-driven remedies
-("pin litesvm <0.13") so the answer is *works if you pin X*, not just *conflict*.
+("pin litesvm outside 0.13.x") so the answer is *works if you pin X*, not just *conflict*.
 
 ## Facts database
 
@@ -149,7 +149,7 @@ coming — [LiteSVM/litesvm#372](https://github.com/LiteSVM/litesvm/issues/372).
   actually make it resolve, every file is rolled back to its original bytes.
 
 So `sondir doctor` finds the litesvm × light-sdk conflict, and `sondir fix --write` turns
-`litesvm = "0.13.1"` into `litesvm = "0.12"` and confirms the build resolves — without
+`litesvm = "0.13.1"` into `litesvm = "0.14"` and confirms the build resolves — without
 disturbing anything else in the manifest.
 
 ## sweep

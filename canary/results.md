@@ -76,3 +76,32 @@ Matrix intent per canary:
 6. **c20**: anchor-lang 0.31.1 under CLI 1.1.2 resolves but the v1 template source fails to compile (E0308) — the toolchain-anchor warn fires; template/API skew is the real hazard.
 7. **c15 correction**: devnet ACCEPTED an arch-v1 deploy — with the SBPFv3 gate active, e_flags maps directly and v0–v3 are all deployable (until SIMD-0500 kills 0–2). `facts::arch_deployable` corrected; test updated.
 8. **edition2024 (c10)**: platform-tools v1.54's bundled cargo handles `edition = "2024"` crates (blake3 latest builds for SBF). The Jan-2026 pinning ritual (blake3=1.8.2 etc.) is obsolete on v1.54+.
+
+## Batch 3 — upstream thaw re-check (2026-07-27)
+
+Trigger: `facts verify` reported 6 of 7 conflicts **stale**. Re-checked against crates.io
+metadata and a live VM probe rather than trusting either the DB or the "it's fixed now" claim.
+
+| id | probe | result |
+|---|---|---|
+| — | litesvm 0.14.0 (2026-07-13) dep metadata | `solana-instruction` `=3.2.0` → **`^3.4.0`**, agave-* → `^4.1.1`: the Agave-4.1-wave release the DB was waiting on. Conflicts rebounded `>=0.13` → `>=0.13, <0.14`, remedies flipped from downgrade-to-0.12 to upgrade-to-0.14 |
+| — | mollusk-svm 0.14.0 (2026-07-08) dep metadata | drops `agave-syscalls`, rides `^4.1.1`. Same rebound for the three mollusk entries |
+| c21 | arch v1/v2/v3 `.so` executed under litesvm 0.14.0 **and** 0.15.0 | **all three EXECUTE** (program body confirmed via `Program log:`; truncated + garbage ELF controls correctly `LOAD FAIL`). The 0.12/0.13 arch trap is GONE → new `litesvm_runtimes` rows `arch_ok = [1,2,3]` |
+| c22 | bare `cargo add litesvm@0.14/0.15` with **no lockfile** | **COMPILE FAIL** (E0277): `solana-address 2.7.0` + `solana-message 4.4.0` moved to `wincode ^0.6.0` while `solana-instruction 3.4.0` (newest) still derives its schema impls from `wincode ^0.5.0`. Both wincode majors land in one graph and `Pubkey` fails the trait bound |
+
+### Discoveries
+
+9. **The arch trap inverted (c21).** Under litesvm ≥0.14 every arch executes, so a green
+   `cargo test` no longer implies a deployable artifact — SIMD-0500 still bars v0/v1/v2 at
+   the cluster. `arch-litesvm` used to catch that skew for free; on 4.1 runtimes only the
+   `arch-cluster` check does. Recorded in the 0.14 runtime note.
+10. **Resolve-clean, compile-broken (c22).** `wincode` 0.5/0.6 is the first conflict found
+    that cargo's resolver *accepts* — it is a trait-coherence failure, not a version
+    selection failure. `facts verify` (verify.rs: greps `failed to select`) and `sweep`
+    both probe resolution only, so this class is invisible to the current fact model and
+    was deliberately NOT written as a `[[conflicts]]` entry — a probe would report it
+    "resolves" and mark it stale forever. Needs a compile-level fact category.
+11. **Lockfiles are load-bearing right now.** `~/MonkLabs/raflux` builds litesvm 0.14.0 with
+    130 green tests purely because its `Cargo.lock` holds `solana-address 2.6.1` /
+    `solana-message 4.3.0` / `wincode 0.5.5`. `cargo update --dry-run` there shows the move
+    to 2.7.0 / 4.4.0 and **`Adding wincode v0.6.0`** — a plain `cargo update` breaks it.
