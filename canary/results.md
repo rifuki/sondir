@@ -98,7 +98,24 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 
 | c27 | full freshness audit of every crate named in facts.toml against crates.io | found the mechanism the wincode entry had *upside down*, plus four bound defects — see discovery 15 |
 
+| c28 | first `sondir sweep --compile` run (66 pairs, resolve then `cargo check`) | **45 clean, 21 hits — every one compile-only.** Zero new resolve-level conflicts, i.e. all 21 were invisible to the resolver-only sweep. See discovery 17 |
+
 ### Discoveries
+
+17. **The compile sweep paid for itself on its first run (c28).** 21 of 66 pairs resolve
+    cleanly and do not compile. Eleven were litesvm pairs, correctly matched to
+    `wincode-schema-split`. The other **ten were mollusk-svm 0.14.0 pairs reported as NEW** —
+    and the excerpt is the identical `Pubkey: SchemaRead` E0277, so it is the same split
+    through a second door. mollusk-svm has **no direct wincode dependency at all**: its
+    non-optional `solana-instruction-error ^2.1.0` and `solana-transaction-error ^3.0.0`
+    float to the releases that crossed to 0.6. Verified minimal: `cargo add mollusk-svm@0.14`
+    alone fails. Recorded as `wincode-schema-split-mollusk`, following the
+    litesvm-light / mollusk-light convention of one entry per entry point so each keeps a
+    minimal reproducer.
+
+    Worth stating plainly, because it is a bigger claim than it looks: **anchor-lang 1.1.2 ×
+    mollusk-svm 0.14.0 does not compile today.** A plain Anchor + Mollusk project, nothing
+    exotic. The resolver-only sweep called that pair clean four hours earlier.
 
 15. **The trap is beneath the crates you can see (c27).** The wincode entry named
     solana-instruction 3.4.0 as the 0.5-wave holdout everyone waits on. It is not a clean

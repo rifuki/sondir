@@ -279,7 +279,7 @@ mod tests {
         let facts = embedded();
         assert_eq!(facts.gates.len(), 3);
         assert_eq!(facts.conflicts.len(), 7);
-        assert_eq!(facts.compile_conflicts.len(), 1);
+        assert_eq!(facts.compile_conflicts.len(), 2);
         assert_eq!(facts.litesvm_runtimes.len(), 4);
         // A compile conflict without a probe is unverifiable, and one without a
         // split_crate is invisible to `doctor` — the whole point of the category.

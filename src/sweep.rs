@@ -324,6 +324,12 @@ mod tests {
             Some("wincode-schema-split")
         );
         assert!(known_compile_conflict_id("anchor-lang", "mpl-core").is_none());
+        // The first --compile sweep reported 10 mollusk pairs as NEW because the
+        // only compile entry then named litesvm. Same split, second entry point.
+        assert_eq!(
+            known_compile_conflict_id("anchor-lang", "mollusk-svm").as_deref(),
+            Some("wincode-schema-split-mollusk")
+        );
     }
 
     /// The resolve-level matcher keeps the stricter rule: a pair is only "known"
