@@ -94,7 +94,27 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 
 | c25 | bump ephemeral-rollups-sdk 0.15.5 -> 0.16.2 in a real workspace (raflux) | **blocked by the same split**: 0.16.2 pulls the wincode 0.6 wave in, and `cargo check --tests` fails with E0277 across four crates. Reverted. A routine minor bump, not a `cargo update`, is enough to trip it |
 
+| c26 | upstream research on the wincode split (crates.io API + anza-xyz/solana-sdk commit log + GitHub issue search) | root cause found, **and one of our own claims refuted** — see discovery 14 |
+
 ### Discoveries
+
+14. **The split has a name, an end date, and one of our claims was wrong (c26).**
+    Root cause is [anza-xyz/solana-sdk#832](https://github.com/anza-xyz/solana-sdk/pull/832),
+    merged 2026-07-21: a single `[workspace.dependencies] wincode` flip to 0.6.0. Master is
+    uniformly on 0.6; only the leaf-first crates.io republish lags. So this is a publish wave
+    mid-flight, not a stalled migration — and the precedent round (0.4→0.5, #647) took 7 days
+    from bump to `solana-instruction`'s republish, putting this around 2026-07-28. The single
+    unblocking release is **solana-instruction 3.5.0/3.4.1 on wincode ^0.6.0**. Not ours alone
+    either: [LiteSVM/litesvm#386](https://github.com/LiteSVM/litesvm/issues/386) reports the
+    identical E0277 (opened 2026-07-25, maintainer committed to a fix 2026-07-26).
+
+    **Correction.** The entry listed `solana-message >=4.4` in the 0.6 wave. It is not — 4.4.0
+    is on `wincode ^0.5.0`, published five hours *before* #832 merged. The error came from
+    reading a `cargo update --dry-run` plan: solana-message 4.3.0 → 4.4.0 moved in the same
+    batch that added wincode 0.6, and correlation got recorded as causation. Our own
+    `cargo tree -i wincode@0.6.0` output had already excluded it. The real path is
+    `Pubkey` → `solana-address::Address`, and address 2.7.0 is the crate that crossed.
+    Fixed, along with the full membership of both sides.
 
 13. **The split blocks upgrades, not just updates (c25).** The wincode entry was written
     as a `cargo update` hazard; it is broader. Any dependency bump that reaches the 0.6
