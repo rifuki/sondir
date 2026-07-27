@@ -169,7 +169,10 @@ pub enum CompileProbeResult {
 /// The expensive half of `facts verify`: unlike `probe`, this actually builds
 /// the dependency graph, so it costs minutes rather than seconds. That is the
 /// price of seeing a class of breakage the resolver is blind to.
-pub fn compile_probe(deps: &[(String, String, Vec<String>)], tag: &str) -> Result<CompileProbeResult> {
+pub fn compile_probe(
+    deps: &[(String, String, Vec<String>)],
+    tag: &str,
+) -> Result<CompileProbeResult> {
     let selection: Vec<Selection> = deps
         .iter()
         .map(|(name, req, features)| Selection {
@@ -178,8 +181,7 @@ pub fn compile_probe(deps: &[(String, String, Vec<String>)], tag: &str) -> Resul
             features: features.clone(),
         })
         .collect();
-    let workdir =
-        std::env::temp_dir().join(format!("sondir-cprobe-{tag}-{}", std::process::id()));
+    let workdir = std::env::temp_dir().join(format!("sondir-cprobe-{tag}-{}", std::process::id()));
     write_workspace(&workdir, &selection)?;
     let output = Command::new("cargo")
         .args(["check", "--quiet"])

@@ -209,11 +209,7 @@ pub fn compile_conflicts(report: &mut Report, project: &Project) {
         };
         let split_versions: Vec<&String> = versions
             .iter()
-            .filter(|a| {
-                versions
-                    .iter()
-                    .any(|b| facts::semver_incompatible(a, b))
-            })
+            .filter(|a| versions.iter().any(|b| facts::semver_incompatible(a, b)))
             .collect();
         if split_versions.is_empty() {
             continue;
