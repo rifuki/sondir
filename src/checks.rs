@@ -243,20 +243,42 @@ fn present_matching(
     name: &str,
     req: &str,
 ) -> bool {
-    let mut names = vec![name];
-    for (a, b) in EQUIVALENT_CRATES {
-        if *a == name {
-            names.push(b);
-        } else if *b == name {
-            names.push(a);
-        }
+    if present_at(project, declared, name, Some(req)) {
+        return true;
     }
-    names.iter().any(|n| {
-        [project.locked.get(*n), declared.get(*n)]
-            .into_iter()
-            .flatten()
-            .any(|raw| version_matches(raw, req))
+    // An equivalent crate marks the same stack, but the two version INDEPENDENTLY
+    // (ephemeral-rollups-sdk is on 0.16.x while ephemeral-vrf-sdk is on 0.4.x), so
+    // the named crate's req cannot be applied to its twin — presence is the signal.
+    // Applying it anyway silently narrowed detection the moment a probe req got
+    // tighter than `*`, which is what broke `conflict_is_caught_from_the_lockfile_alone`.
+    EQUIVALENT_CRATES.iter().any(|(a, b)| {
+        let twin = if *a == name {
+            Some(*b)
+        } else if *b == name {
+            Some(*a)
+        } else {
+            None
+        };
+        twin.is_some_and(|twin| present_at(project, declared, twin, None))
     })
+}
+
+/// Is `name` present at all (`req = None`) or at a version matching `req`?
+/// Reads the lockfile AND the declared manifests — the lock lies after a failed
+/// resolve (canary c05).
+fn present_at(
+    project: &Project,
+    declared: &std::collections::BTreeMap<String, String>,
+    name: &str,
+    req: Option<&str>,
+) -> bool {
+    [project.locked.get(name), declared.get(name)]
+        .into_iter()
+        .flatten()
+        .any(|raw| match req {
+            Some(req) => version_matches(raw, req),
+            None => true,
+        })
 }
 
 fn version_matches(raw: &str, req: &str) -> bool {

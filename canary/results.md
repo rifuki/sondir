@@ -126,6 +126,14 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
     litesvm-magicblock mechanism text had drifted — the probe still fails, but the resolver's
     first casualty is now `solana-loader-v4-program 4.0.0`, not `solana-instruction =3.2.0`.
 
+    Tightening that probe also exposed a **latent bug in `doctor`**, not just a test failure:
+    `present_matching` applied the named crate's version req to its EQUIVALENT crate too.
+    ephemeral-rollups-sdk (0.16.x) and ephemeral-vrf-sdk (0.4.x) version independently, so any
+    req tighter than `*` silently stopped matching the twin — detection would have been lost
+    for every project that reaches MagicBlock through ephemeral-vrf-sdk. The wildcard had been
+    hiding it since the entry was written. Equivalence now means presence; the req applies only
+    to the crate that is named.
+
     One audit concern closed rather than acted on: `spl-token-interface 3.0.0` and
     `anchor-lang 1.1.2` sit on `solana-pubkey ^3.0.0`, behind the 4.x wave that light-sdk and
     mollusk require, and were flagged as untested pairings. They are not untested — sweep's
