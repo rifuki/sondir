@@ -96,7 +96,47 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 
 | c26 | upstream research on the wincode split (crates.io API + anza-xyz/solana-sdk commit log + GitHub issue search) | root cause found, **and one of our own claims refuted** — see discovery 14 |
 
+| c27 | full freshness audit of every crate named in facts.toml against crates.io | found the mechanism the wincode entry had *upside down*, plus four bound defects — see discovery 15 |
+
 ### Discoveries
+
+15. **The trap is beneath the crates you can see (c27).** The wincode entry named
+    solana-instruction 3.4.0 as the 0.5-wave holdout everyone waits on. It is not a clean
+    0.5 island: its NON-OPTIONAL `solana-instruction-error ^2.2.0` resolves to 2.5.0, which
+    is on wincode 0.6. Same for the crates listed on the 0.5 side — `litesvm 0.15.0` hard-pins
+    `wincode ^0.5.5` while its mandatory `solana-instruction-error ^2.4.0` and
+    `solana-transaction-error ^3.3.1` float to the 0.6 releases. **That is the real reason a
+    bare `cargo add litesvm@0.15` reproduces with nothing else present** — the earlier
+    attribution to solana-address was incomplete. `mollusk-svm 0.14.0` drags the wave the same
+    way with no direct wincode dep at all. Consequence: no upper bound on the visible crates
+    can keep 0.6 out, which turns "don't pin, wait" from a preference into the only option.
+    The wave is 13 crates, not 7 — `solana-hard-forks`, `solana-inflation` and
+    `solana-reward-info` were also missing.
+
+    **Second correction to c25.** "Bumping ephemeral-rollups-sdk 0.15.5 -> 0.16.2 pulls the
+    0.6 wave in" is wrong about the cause. Diffing the two releases: the only change is
+    `magicblock-delegation-program-api ^3.0.0 -> ^3.1.0`; no solana-* requirement moved. The
+    bump was the *trigger* — it forced re-resolution — not the cause. Any manifest edit
+    touching that subtree does it, which makes the hazard broader than recorded.
+
+    **Bound defects fixed:** `ephemeral-rollups-sdk@*` made cargo enumerate all 76 published
+    versions and fail with a feature error on ancient 0.0.x releases instead of the conflict
+    (now `>=0.15`); `ephemeral-vrf-sdk >=0.3` named a range whose every member is yanked (now
+    `>=0.4`); the litesvm sysvar entry discussed only 3.0.1 while 4.0.0 has shipped; and the
+    litesvm-magicblock mechanism text had drifted — the probe still fails, but the resolver's
+    first casualty is now `solana-loader-v4-program 4.0.0`, not `solana-instruction =3.2.0`.
+
+    One audit concern closed rather than acted on: `spl-token-interface 3.0.0` and
+    `anchor-lang 1.1.2` sit on `solana-pubkey ^3.0.0`, behind the 4.x wave that light-sdk and
+    mollusk require, and were flagged as untested pairings. They are not untested — sweep's
+    66 pairs is exactly C(12,2) over the 12 ALIASES, so every such pair was probed on
+    2026-07-27 and came back clean (c24).
+
+16. **An Agave 4.2 wave is forming (c27, watch item).** `mollusk-svm 0.14.0-agave-4.2.0-beta.2`
+    (2026-07-26) alongside `solana-program-runtime 4.2.0-rc.0` and `agave-feature-set 4.2.0-rc.0`
+    (2026-07-24). The 0.13 -> 0.14 schism this DB documents is set to repeat at 0.14 -> 0.15.
+    Nothing to record as a conflict yet — no stable release has landed — but the bounds added
+    today (`>=0.13, <0.14`) are the right shape for it.
 
 14. **The split has a name, an end date, and one of our claims was wrong (c26).**
     Root cause is [anza-xyz/solana-sdk#832](https://github.com/anza-xyz/solana-sdk/pull/832),
