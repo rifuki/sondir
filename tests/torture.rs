@@ -425,6 +425,11 @@ fn drift_is_caught_even_before_the_first_build() {
 #[test]
 fn conflict_is_caught_from_the_lockfile_alone() {
     // Manifest looks innocent; the lock tells the truth (canary c05 inverse).
+    //
+    // Also guards the equivalent-crate rule: the probe names ephemeral-rollups-sdk
+    // (0.15+), the lock carries its twin ephemeral-vrf-sdk at 0.3.0, and the two
+    // version independently — so applying the probe's req to the twin would lose
+    // this detection entirely. It did, the day the probe req went tighter than `*`.
     let fixture = Fixture::healthy("lock-conflict");
     fixture.lock(&[("litesvm", "0.13.1"), ("ephemeral-vrf-sdk", "0.3.0")]);
     let (report, exit) = fixture.doctor();
