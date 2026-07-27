@@ -106,6 +106,19 @@ fix = "wait it out — this is a publish wave in flight, not a stalled migration
 probe = ["litesvm@0.15"]
 split_crate = "wincode"
 
+# Same root cause as wincode-schema-split, different entry point — the shape this
+# DB already uses for litesvm-light / mollusk-light. Separate rather than folded
+# in, so each entry keeps a MINIMAL reproducer: `cargo add mollusk-svm@0.14` alone
+# is enough, exactly as `cargo add litesvm@0.15` alone is.
+[[compile_conflicts]]
+id = "wincode-schema-split-mollusk"
+a = "the wincode 0.6 wave — see wincode-schema-split for the full 13"
+b = "mollusk-svm 0.14.0 and the 0.5-wave crates beneath it"
+why = "mollusk-svm 0.14.0 has NO direct wincode dependency at all, which is what makes it the more instructive case: its NON-OPTIONAL solana-instruction-error ^2.1.0 and solana-transaction-error ^3.0.0 float up to the 2.5.0/3.4.0 releases that crossed to wincode 0.6, while the rest of its tree is still on 0.5. So the split arrives entirely through transitive deps and a bare `cargo add mollusk-svm@0.14` fails to compile with the identical `Pubkey: SchemaRead` E0277. Found by the first `sweep --compile` run (2026-07-27, canary c28): 10 of its 21 hits were mollusk pairs that the litesvm-only entry could not recognise — including anchor-lang x mollusk-svm, i.e. a plain Anchor + Mollusk project does not build today."
+fix = "same as wincode-schema-split: wait for the Agave publish wave to reach solana-instruction (3.5.0/3.4.1 on wincode ^0.6.0). Bounding is not available here either — the two crates that moved are non-optional deps underneath mollusk-svm, not things you declare"
+probe = ["mollusk-svm@0.14"]
+split_crate = "wincode"
+
 [[litesvm_runtimes]]
 prefix = "0.12."
 arch_ok = [1, 2]
