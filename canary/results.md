@@ -92,7 +92,16 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 
 | c24 | `sondir sweep` (66 pairs, latest × latest) after the thaw | **66 probed, 66 clean, 0 hits** — and that is the finding, not the good news: see discovery 12 |
 
+| c25 | bump ephemeral-rollups-sdk 0.15.5 -> 0.16.2 in a real workspace (raflux) | **blocked by the same split**: 0.16.2 pulls the wincode 0.6 wave in, and `cargo check --tests` fails with E0277 across four crates. Reverted. A routine minor bump, not a `cargo update`, is enough to trip it |
+
 ### Discoveries
+
+13. **The split blocks upgrades, not just updates (c25).** The wincode entry was written
+    as a `cargo update` hazard; it is broader. Any dependency bump that reaches the 0.6
+    wave does it — ephemeral-rollups-sdk 0.16.2 is one. Also worth recording: the boundary
+    is only crossed where both sides get compiled. `cargo check -p raflux-randomness`
+    passed on the very graph whose `cargo check --tests` failed, so "two majors in the
+    lockfile" is a risk signal, not proof — judge it on the build CI actually runs.
 
 12. **The radar's blind spot, demonstrated live (c24).** Sweep reported the ecosystem
     entirely clean on the same day c22 proved a fresh `cargo add litesvm@0.15` cannot be
