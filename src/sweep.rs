@@ -51,6 +51,11 @@ pub struct SweepReport {
     pub probed: usize,
     pub clean: usize,
     pub hits: Vec<SweepHit>,
+    /// What `clean` actually means for this run. Without `--compile` it is only
+    /// "cargo could select versions" — on 2026-07-27 that read 66/66 while 21 of
+    /// those pairs did not compile. A number this easy to misread has to carry
+    /// its own qualifier, in the JSON as well as the printed report.
+    pub depth: &'static str,
 }
 
 struct Subject {
@@ -129,6 +134,11 @@ pub fn run(json: bool, compile: bool) -> Result<i32> {
         probed: total,
         clean: clean.into_inner().unwrap(),
         hits,
+        depth: if compile {
+            "resolve+compile"
+        } else {
+            "resolve-only"
+        },
     };
 
     let new_candidates = report.hits.iter().filter(|h| h.known.is_none()).count();
@@ -200,12 +210,27 @@ fn sweep_pair(a: &Subject, b: &Subject, i: usize, j: usize, compile: bool) -> Op
 }
 
 fn print_report(report: &SweepReport, new_candidates: usize) {
+    let compiled = report.depth == "resolve+compile";
     println!(
-        "\n{} pairs probed · {} clean at latest · {} conflict",
+        "\n{} pairs probed · {} clean ({}) · {} conflict",
         report.probed,
         report.clean,
+        if compiled {
+            "resolved AND compiled"
+        } else {
+            "resolved — NOT compile-checked"
+        },
         report.hits.len()
     );
+    if !compiled {
+        // The number above is the one people quote. Left bare it says "the
+        // ecosystem is fine" when it only says "cargo could pick versions".
+        println!(
+            "  note: resolver-only. A pair can resolve and still fail to build — \
+             on 2026-07-27 this line read 66/66 clean while 21 of those pairs did not \
+             compile. Re-run with --compile to check."
+        );
+    }
     for hit in &report.hits {
         let badge = match (&hit.known, hit.kind) {
             (Some(id), _) => format!("✓ known [{id}]"),
