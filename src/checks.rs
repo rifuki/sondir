@@ -192,6 +192,49 @@ pub fn known_conflicts(report: &mut Report, project: &Project) {
     }
 }
 
+/// Conflicts cargo already resolved and rustc will still refuse.
+///
+/// Read from the LOCKFILE rather than the manifests, because nothing a project
+/// declares reveals this: the breakage is two semver-incompatible copies of a
+/// crate whose derived traits cross crate boundaries, dragged in by transitive
+/// deps mid-migration. `dep-conflict` cannot see it — that check only fires on
+/// entries whose probe fails to RESOLVE, and these resolve perfectly (c22/c24).
+pub fn compile_conflicts(report: &mut Report, project: &Project) {
+    for conflict in facts::compile_conflicts() {
+        let Some(split) = conflict.split_crate.as_deref() else {
+            continue;
+        };
+        let Some(versions) = project.locked_all.get(split) else {
+            continue;
+        };
+        let split_versions: Vec<&String> = versions
+            .iter()
+            .filter(|a| {
+                versions
+                    .iter()
+                    .any(|b| facts::semver_incompatible(a, b))
+            })
+            .collect();
+        if split_versions.is_empty() {
+            continue;
+        }
+        let found = split_versions
+            .iter()
+            .map(|v| format!("{split} {v}"))
+            .collect::<Vec<_>>()
+            .join(" + ");
+        report.fail(
+            "compile-conflict",
+            format!("{} × {}", conflict.a, conflict.b),
+            format!(
+                "{} Lockfile carries {found} — cargo resolved it, rustc will not.",
+                conflict.why
+            ),
+            Some(conflict.fix.clone()),
+        );
+    }
+}
+
 /// Crates that mark the same stack under two names (one pulls the other), so a
 /// probe naming one is satisfied by either appearing in the workspace.
 const EQUIVALENT_CRATES: &[(&str, &str)] = &[("ephemeral-rollups-sdk", "ephemeral-vrf-sdk")];

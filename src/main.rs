@@ -176,6 +176,7 @@ pub fn run_doctor(path: &std::path::Path, url: Option<&str>, offline: bool) -> R
 
     checks::toolchain(&mut report, &project);
     checks::known_conflicts(&mut report, &project);
+    checks::compile_conflicts(&mut report, &project);
     checks::resolve_probe(&mut report, &project, offline);
     checks::anchor_test_footgun(&mut report, &project);
 

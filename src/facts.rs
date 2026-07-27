@@ -23,6 +23,8 @@ pub struct FactsFile {
     #[serde(default)]
     pub conflicts: Vec<KnownConflict>,
     #[serde(default)]
+    pub compile_conflicts: Vec<CompileConflict>,
+    #[serde(default)]
     pub litesvm_runtimes: Vec<LitesvmRuntime>,
 }
 
@@ -51,6 +53,52 @@ pub struct KnownConflict {
     /// (e.g. a removal, which `fix` never does automatically).
     #[serde(default)]
     pub fix_pin: Option<String>,
+}
+
+/// A conflict cargo's RESOLVER accepts and rustc then rejects.
+///
+/// The `[[conflicts]]` model above cannot express this class: its probe expects
+/// `cargo generate-lockfile` to fail, so a graph that resolves perfectly and only
+/// breaks at `cargo check` would be reported "resolves" and flipped to STALE
+/// forever. Found live in the wincode 0.5/0.6 split (canary c22/c24), where
+/// `sweep` reported 66/66 clean on an ecosystem that could not build a fresh
+/// litesvm project.
+#[derive(Debug, Deserialize)]
+pub struct CompileConflict {
+    pub id: String,
+    pub a: String,
+    pub b: String,
+    pub why: String,
+    pub fix: String,
+    /// Machine-checkable form, same `crate@req[#features]` grammar as
+    /// `KnownConflict::probe` — but a manifest with exactly these deps must
+    /// RESOLVE and then FAIL `cargo check` while the conflict is real.
+    #[serde(default)]
+    pub probe: Vec<String>,
+    /// The crate whose semver-incompatible duplication IS the breakage. `doctor`
+    /// flags a project whose lockfile carries two incompatible majors of it.
+    /// `None` = verify-only (no local detection rule).
+    #[serde(default)]
+    pub split_crate: Option<String>,
+}
+
+/// Do these two lockfile versions sit in different semver-compatibility ranges?
+/// `0.5.5` vs `0.6.0` do (pre-1.0 minor is the major); `4.3.0` vs `4.4.0` do not.
+pub fn semver_incompatible(a: &str, b: &str) -> bool {
+    fn compat_key(v: &str) -> (u64, u64) {
+        let mut parts = v
+            .split(['.', '-', '+'])
+            .map(|p| p.parse::<u64>().unwrap_or(0));
+        let major = parts.next().unwrap_or(0);
+        let minor = parts.next().unwrap_or(0);
+        // Cargo treats the leftmost non-zero component as the breaking one.
+        if major == 0 {
+            (0, minor)
+        } else {
+            (major, 0)
+        }
+    }
+    compat_key(a) != compat_key(b)
 }
 
 /// Parse one probe spec: `name@req` with optional `#features` suffix.
@@ -115,6 +163,10 @@ pub fn gates() -> &'static [FeatureGate] {
 
 pub fn conflicts() -> &'static [KnownConflict] {
     &facts().conflicts
+}
+
+pub fn compile_conflicts() -> &'static [CompileConflict] {
+    &facts().compile_conflicts
 }
 
 pub fn litesvm_runtimes() -> &'static [LitesvmRuntime] {
@@ -227,7 +279,25 @@ mod tests {
         let facts = embedded();
         assert_eq!(facts.gates.len(), 3);
         assert_eq!(facts.conflicts.len(), 7);
+        assert_eq!(facts.compile_conflicts.len(), 1);
         assert_eq!(facts.litesvm_runtimes.len(), 4);
+        // A compile conflict without a probe is unverifiable, and one without a
+        // split_crate is invisible to `doctor` — the whole point of the category.
+        for conflict in &facts.compile_conflicts {
+            assert!(
+                !conflict.probe.is_empty(),
+                "compile conflict {} has no probe",
+                conflict.id
+            );
+            for spec in &conflict.probe {
+                assert!(parse_probe(spec).is_some(), "malformed probe: {spec}");
+            }
+            assert!(
+                conflict.split_crate.is_some(),
+                "compile conflict {} has no split_crate to detect locally",
+                conflict.id
+            );
+        }
         assert!(facts.conflicts.iter().any(|c| c.id == "litesvm-magicblock"));
         // Every embedded conflict must be machine-verifiable by `facts verify`.
         for conflict in &facts.conflicts {
@@ -328,6 +398,21 @@ mod tests {
             let runtime = litesvm_runtime(version).expect("known version");
             assert_eq!(runtime.arch_ok, vec![1, 2, 3], "litesvm {version}");
         }
+    }
+
+    /// Cargo's compatibility rule, which is what decides whether two locked
+    /// copies can share a trait impl: leftmost non-zero component.
+    #[test]
+    fn semver_compatibility_follows_leftmost_nonzero() {
+        // The live case: wincode 0.5.5 and 0.6.0 cannot share impls.
+        assert!(semver_incompatible("0.5.5", "0.6.0"));
+        assert!(!semver_incompatible("0.5.5", "0.5.9"));
+        // Post-1.0 the major governs, so a minor bump is still compatible.
+        assert!(!semver_incompatible("4.3.0", "4.4.0"));
+        assert!(semver_incompatible("3.4.0", "4.0.0"));
+        // 0.x vs 1.x, and prerelease tails must not confuse the parse.
+        assert!(semver_incompatible("0.6.0", "1.0.0"));
+        assert!(!semver_incompatible("0.14.0", "0.14.1-beta.2"));
     }
 
     #[test]

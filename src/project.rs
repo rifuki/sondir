@@ -13,6 +13,9 @@ pub struct Project {
     pub root: PathBuf,
     pub anchor: AnchorConfig,
     pub locked: BTreeMap<String, String>,
+    /// Every locked version per crate — `locked` keeps only one, which hides
+    /// the duplications that break trait coherence.
+    pub locked_all: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -64,12 +67,15 @@ impl Project {
         let anchor: AnchorConfig =
             toml::from_str(&anchor_raw).context("Anchor.toml did not parse")?;
 
-        let locked = read_lockfile(&root.join("Cargo.lock")).unwrap_or_default();
+        let lock_path = root.join("Cargo.lock");
+        let locked = read_lockfile(&lock_path).unwrap_or_default();
+        let locked_all = read_lockfile_all(&lock_path).unwrap_or_default();
 
         Ok(Self {
             root: root.to_owned(),
             anchor,
             locked,
+            locked_all,
         })
     }
 
@@ -227,6 +233,37 @@ fn parse_declared(raw: &str) -> Vec<(String, String)> {
 
 fn read_lockfile(path: &Path) -> Result<BTreeMap<String, String>> {
     parse_lockfile(&fs::read_to_string(path)?)
+}
+
+fn read_lockfile_all(path: &Path) -> Result<BTreeMap<String, Vec<String>>> {
+    parse_lockfile_all(&fs::read_to_string(path)?)
+}
+
+/// Every version of every locked crate, not just the last one seen.
+///
+/// `parse_lockfile` collapses a crate to one version, which is exactly the
+/// information a duplication check needs — two semver-incompatible copies of one
+/// crate in a single graph is what breaks trait coherence (canary c22).
+pub(crate) fn parse_lockfile_all(raw: &str) -> Result<BTreeMap<String, Vec<String>>> {
+    #[derive(Deserialize)]
+    struct Lock {
+        #[serde(default)]
+        package: Vec<LockPackage>,
+    }
+    #[derive(Deserialize)]
+    struct LockPackage {
+        name: String,
+        version: String,
+    }
+    let lock: Lock = toml::from_str(raw)?;
+    let mut all: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for p in lock.package {
+        let versions = all.entry(p.name).or_default();
+        if !versions.contains(&p.version) {
+            versions.push(p.version);
+        }
+    }
+    Ok(all)
 }
 
 pub(crate) fn parse_lockfile(raw: &str) -> Result<BTreeMap<String, String>> {
