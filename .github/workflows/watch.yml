@@ -30,7 +30,9 @@ jobs:
           # Repo secret overrides; falls back to public devnet (one gate read/day is fine).
           SONDIR_RPC: ${{ secrets.SONDIR_RPC || 'https://api.devnet.solana.com' }}
         run: |
-          set +e
+          # pipefail is load-bearing: without it `$?` after `| tee` is TEE's status,
+          # which is always 0, so the alert below could never fire.
+          set +e -o pipefail
           ./target/release/sondir watch --json | tee watch.json
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
@@ -42,7 +44,10 @@ jobs:
         env:
           SONDIR_RPC: ${{ secrets.SONDIR_RPC || 'https://api.devnet.solana.com' }}
         run: |
-          set +e
+          # See the note above: `$?` after a pipe is tee's, so this needs pipefail
+          # to ever see exit 4. Without it the stale-facts alarm was mute — which
+          # is why the 2026-07-13 litesvm 0.14 release sat unreported for 14 days.
+          set +e -o pipefail
           ./target/release/sondir facts verify --json | tee facts.json
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
