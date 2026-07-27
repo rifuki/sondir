@@ -152,6 +152,52 @@ pub fn probe(deps: &[(String, String, Vec<String>)], tag: &str) -> Result<ProbeR
     Ok(result)
 }
 
+/// Outcome of compile-probing one synthetic manifest.
+pub enum CompileProbeResult {
+    /// Resolved AND compiled — whatever broke rustc has been fixed upstream.
+    Compiles,
+    /// Resolved, then rustc rejected it: the compile conflict still holds.
+    FailsToCompile(String),
+    /// Never reached rustc. A resolve failure belongs in `[[conflicts]]`, and
+    /// reporting it here would let a plain version conflict masquerade as a
+    /// compile-level one.
+    FailsToResolve(String),
+}
+
+/// Does this exact set of deps RESOLVE and then survive `cargo check`?
+///
+/// The expensive half of `facts verify`: unlike `probe`, this actually builds
+/// the dependency graph, so it costs minutes rather than seconds. That is the
+/// price of seeing a class of breakage the resolver is blind to.
+pub fn compile_probe(deps: &[(String, String, Vec<String>)], tag: &str) -> Result<CompileProbeResult> {
+    let selection: Vec<Selection> = deps
+        .iter()
+        .map(|(name, req, features)| Selection {
+            krate: name.clone(),
+            req: req.clone(),
+            features: features.clone(),
+        })
+        .collect();
+    let workdir =
+        std::env::temp_dir().join(format!("sondir-cprobe-{tag}-{}", std::process::id()));
+    write_workspace(&workdir, &selection)?;
+    let output = Command::new("cargo")
+        .args(["check", "--quiet"])
+        .current_dir(&workdir)
+        .output()
+        .context("cargo not found on PATH")?;
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let result = if output.status.success() {
+        CompileProbeResult::Compiles
+    } else if stderr.contains("failed to select") {
+        CompileProbeResult::FailsToResolve(stderr)
+    } else {
+        CompileProbeResult::FailsToCompile(stderr)
+    };
+    let _ = fs::remove_dir_all(&workdir);
+    Ok(result)
+}
+
 #[derive(Serialize)]
 pub struct Resolution {
     pub requested: Vec<String>,

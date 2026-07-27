@@ -103,6 +103,25 @@ suddenly resolves means upstream fixed it — the entry reports `STALE` and the 
 4, which the daily watch workflow turns into an alert issue. Runtime arch claims need a VM
 execution to re-check, so they stay marked `evidence`.
 
+### Compile-level conflicts
+
+Some breakage cargo's resolver cannot see. `[[compile_conflicts]]` covers the class where a
+graph resolves perfectly and *rustc* rejects it — typically two semver-incompatible copies
+of a crate whose derived traits cross crate boundaries, so an impl from one copy will not
+satisfy a bound from the other. These entries invert the probe: the selection must RESOLVE
+and then fail `cargo check`. (A probe that starts failing to resolve is reported as such,
+because the entry has become an ordinary `[[conflicts]]` case and should be moved.)
+
+`doctor` detects them from the **lockfile**, not the manifests, via `split_crate` — nothing
+a project declares reveals the duplication, since it arrives through transitive deps
+mid-migration.
+
+The category exists because of a live miss: on 2026-07-27 `sweep` reported 66/66 pairs clean
+on the same day a bare `cargo add litesvm@0.15` could not be compiled (canary c22/c24). The
+wincode 0.5/0.6 split resolves flawlessly, so every resolve-level probe walked past it.
+Worth reading `sweep`'s green with that in mind: it means *no version-selection conflicts*,
+which is not the same as *a fresh project builds*.
+
 ## Battle-testing
 
 Two layers keep the "it catches that" claims honest:

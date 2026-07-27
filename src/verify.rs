@@ -12,7 +12,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::facts;
-use crate::resolve::{probe, ProbeResult};
+use crate::resolve::{compile_probe, probe, CompileProbeResult, ProbeResult};
 use crate::rpc::RpcClient;
 
 #[derive(Serialize, PartialEq, Eq, Clone, Copy)]
@@ -41,6 +41,10 @@ pub fn collect(rpc_url: &str) -> Vec<FactStatus> {
 
     for conflict in facts::conflicts() {
         statuses.push(verify_conflict(conflict));
+    }
+
+    for conflict in facts::compile_conflicts() {
+        statuses.push(verify_compile_conflict(conflict));
     }
 
     let rpc = RpcClient::new(rpc_url);
@@ -84,6 +88,82 @@ pub fn collect(rpc_url: &str) -> Vec<FactStatus> {
     }
 
     statuses
+}
+
+/// A compile conflict inverts the usual expectation: the probe must RESOLVE
+/// (else it is an ordinary `[[conflicts]]` entry wearing the wrong hat) and then
+/// FAIL `cargo check`. Both halves matter, so all three outcomes are distinct.
+fn verify_compile_conflict(conflict: &facts::CompileConflict) -> FactStatus {
+    let id = conflict.id.clone();
+    if conflict.probe.is_empty() {
+        return FactStatus {
+            kind: "compile-conflict",
+            id,
+            status: Status::Evidence,
+            detail: "no machine-checkable probe recorded; rests on canary evidence".into(),
+        };
+    }
+    let deps: Vec<(String, String, Vec<String>)> = conflict
+        .probe
+        .iter()
+        .filter_map(|spec| facts::parse_probe(spec))
+        .collect();
+    if deps.len() != conflict.probe.len() {
+        return FactStatus {
+            kind: "compile-conflict",
+            id,
+            status: Status::Unchecked,
+            detail: format!("malformed probe spec in {:?}", conflict.probe),
+        };
+    }
+    match compile_probe(&deps, &conflict.id) {
+        Ok(CompileProbeResult::FailsToCompile(stderr)) => {
+            let line = stderr
+                .lines()
+                .find(|l| l.trim_start().starts_with("error["))
+                .or_else(|| stderr.lines().find(|l| l.trim_start().starts_with("error")))
+                .unwrap_or("cargo check failed")
+                .trim()
+                .to_owned();
+            FactStatus {
+                kind: "compile-conflict",
+                id,
+                status: Status::Verified,
+                detail: format!("resolves but still does NOT compile — {line}"),
+            }
+        }
+        Ok(CompileProbeResult::Compiles) => FactStatus {
+            kind: "compile-conflict",
+            id,
+            status: Status::Stale,
+            detail: "now RESOLVES AND COMPILES — upstream fixed it; update or retire this entry"
+                .into(),
+        },
+        // Not a downgrade to "unknown": it means the claim moved class, and the
+        // entry should be rewritten as a resolve-level conflict.
+        Ok(CompileProbeResult::FailsToResolve(stderr)) => {
+            let line = stderr
+                .lines()
+                .find(|l| l.contains("failed to select"))
+                .unwrap_or("cargo resolution failed")
+                .trim()
+                .to_owned();
+            FactStatus {
+                kind: "compile-conflict",
+                id,
+                status: Status::Unchecked,
+                detail: format!(
+                    "probe now fails to RESOLVE, so it never reaches rustc — this entry has become an ordinary [[conflicts]] case; move it. {line}"
+                ),
+            }
+        }
+        Err(err) => FactStatus {
+            kind: "compile-conflict",
+            id,
+            status: Status::Unchecked,
+            detail: format!("compile probe could not run: {err:#}"),
+        },
+    }
 }
 
 fn verify_conflict(conflict: &facts::KnownConflict) -> FactStatus {
