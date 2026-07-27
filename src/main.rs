@@ -85,6 +85,10 @@ enum Command {
         /// Emit the sweep report as JSON.
         #[arg(long)]
         json: bool,
+        /// Also `cargo check` every pair that RESOLVES, catching conflicts the
+        /// resolver accepts and rustc rejects. Slow: tens of minutes cold.
+        #[arg(long)]
+        compile: bool,
     },
     /// Apply facts-DB dependency-pin remedies to Cargo.toml (dry-run unless --write).
     Fix {
@@ -155,7 +159,7 @@ fn run(cli: Cli) -> Result<i32> {
                 .unwrap_or_else(|| "https://api.devnet.solana.com".into());
             verify::run(&rpc_url, json)
         }
-        Command::Sweep { json } => sweep::run(json),
+        Command::Sweep { json, compile } => sweep::run(json, compile),
         Command::Fix { path, write } => {
             let project = Project::load(&path)?;
             fix::run(&project, write)

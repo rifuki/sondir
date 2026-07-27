@@ -17,7 +17,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::facts;
-use crate::resolve::{probe, ProbeResult, ALIASES};
+use crate::resolve::{compile_probe, probe, CompileProbeResult, ProbeResult, ALIASES};
 use crate::watch::crates_io_max_version;
 
 #[derive(Serialize, PartialEq, Eq, Clone, Copy)]
@@ -27,6 +27,10 @@ pub enum HitKind {
     Hard,
     /// Latest × latest fails; cargo only escapes by backtracking one side.
     LatestOnly,
+    /// Resolves cleanly at latest and then fails `cargo check`. Invisible to the
+    /// resolver-only sweep — the class that let 66/66 read "clean" on 2026-07-27
+    /// while a fresh litesvm project could not be built (canary c24).
+    CompileOnly,
 }
 
 #[derive(Serialize)]
@@ -55,7 +59,7 @@ struct Subject {
     features: Vec<String>,
 }
 
-pub fn run(json: bool) -> Result<i32> {
+pub fn run(json: bool, compile: bool) -> Result<i32> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(15)))
         .build()
@@ -85,6 +89,13 @@ pub fn run(json: bool) -> Result<i32> {
         "sweeping {total} pairs across {} ecosystem crates (latest × latest)…",
         subjects.len()
     );
+    if compile {
+        eprintln!(
+            "  --compile: every pair that RESOLVES also gets `cargo check`. Expect this to \
+             take tens of minutes on a cold cache; builds share {}",
+            crate::resolve::compile_probe_target_dir().display()
+        );
+    }
 
     // Modest parallelism: cargo serializes on its package-cache locks, but
     // index/network wait still overlaps. Work is pulled from a shared queue.
@@ -100,7 +111,7 @@ pub fn run(json: bool) -> Result<i32> {
                     return;
                 };
                 let (a, b) = (&subjects[i], &subjects[j]);
-                if let Some(hit) = sweep_pair(a, b, i, j) {
+                if let Some(hit) = sweep_pair(a, b, i, j, compile) {
                     results.lock().unwrap().push(hit);
                 } else {
                     *clean.lock().unwrap() += 1;
@@ -130,7 +141,7 @@ pub fn run(json: bool) -> Result<i32> {
     Ok(if new_candidates > 0 { 5 } else { 0 })
 }
 
-fn sweep_pair(a: &Subject, b: &Subject, i: usize, j: usize) -> Option<SweepHit> {
+fn sweep_pair(a: &Subject, b: &Subject, i: usize, j: usize, compile: bool) -> Option<SweepHit> {
     let latest_deps = vec![
         (
             a.krate.to_owned(),
@@ -144,7 +155,12 @@ fn sweep_pair(a: &Subject, b: &Subject, i: usize, j: usize) -> Option<SweepHit> 
         ),
     ];
     let stderr = match probe(&latest_deps, &format!("sweep-latest-{i}-{j}")) {
-        Ok(ProbeResult::Resolves(_)) => return None,
+        // Resolving is where the resolver-only sweep stops. With --compile we
+        // keep going, because "cargo picked versions" and "rustc accepts them"
+        // are different questions (canary c22/c24).
+        Ok(ProbeResult::Resolves(_)) => {
+            return compile.then(|| compile_hit(a, b, i, j)).flatten();
+        }
         Ok(ProbeResult::Conflicts(stderr)) => stderr,
         Err(err) => format!("probe error: {err:#}"),
     };
@@ -195,6 +211,7 @@ fn print_report(report: &SweepReport, new_candidates: usize) {
             (Some(id), _) => format!("✓ known [{id}]"),
             (None, HitKind::Hard) => "🔥 NEW · HARD".into(),
             (None, HitKind::LatestOnly) => "🔥 NEW · latest-only".into(),
+            (None, HitKind::CompileOnly) => "🔥 NEW · RESOLVES BUT DOES NOT COMPILE".into(),
         };
         println!(
             "\n{badge}  {} {} × {} {}",
@@ -214,6 +231,65 @@ fn print_report(report: &SweepReport, new_candidates: usize) {
     }
 }
 
+/// The pair resolved — does it survive rustc? Only reached under `--compile`.
+fn compile_hit(a: &Subject, b: &Subject, i: usize, j: usize) -> Option<SweepHit> {
+    let deps = vec![
+        (
+            a.krate.to_owned(),
+            format!("={}", a.latest),
+            a.features.clone(),
+        ),
+        (
+            b.krate.to_owned(),
+            format!("={}", b.latest),
+            b.features.clone(),
+        ),
+    ];
+    let stderr = match compile_probe(&deps, &format!("sweep-check-{i}-{j}")) {
+        Ok(CompileProbeResult::Compiles) => return None,
+        Ok(CompileProbeResult::FailsToCompile(stderr)) => stderr,
+        // It resolved a moment ago; if it does not now, the index moved under
+        // us. Not a compile finding — say nothing rather than mislabel it.
+        Ok(CompileProbeResult::FailsToResolve(_)) => return None,
+        Err(err) => format!("compile probe error: {err:#}"),
+    };
+    let excerpt = stderr
+        .lines()
+        .filter(|l| l.trim_start().starts_with("error"))
+        .take(3)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned();
+    Some(SweepHit {
+        pair: [a.krate.to_owned(), b.krate.to_owned()],
+        latest: [a.latest.clone(), b.latest.clone()],
+        kind: HitKind::CompileOnly,
+        known: known_compile_conflict_id(a.krate, b.krate),
+        escape: None,
+        excerpt,
+    })
+}
+
+/// Compile conflicts are frequently single-crate — `litesvm@0.15` alone drags
+/// both wincode majors in — so EITHER side matching is the right rule here.
+/// Requiring both, as the resolve-level matcher does, would report every pair
+/// containing litesvm as a fresh discovery.
+fn known_compile_conflict_id(a: &str, b: &str) -> Option<String> {
+    facts::compile_conflicts()
+        .iter()
+        .find(|conflict| {
+            let names: BTreeSet<String> = conflict
+                .probe
+                .iter()
+                .filter_map(|spec| facts::parse_probe(spec))
+                .map(|(name, _, _)| name)
+                .collect();
+            names.contains(a) || names.contains(b)
+        })
+        .map(|conflict| conflict.id.clone())
+}
+
 /// Match a failing pair against recorded conflicts by probe crate-name overlap.
 fn known_conflict_id(a: &str, b: &str) -> Option<String> {
     facts::conflicts()
@@ -228,4 +304,36 @@ fn known_conflict_id(a: &str, b: &str) -> Option<String> {
             names.contains(a) && names.contains(b)
         })
         .map(|conflict| conflict.id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A compile conflict whose probe names one crate must still be recognised
+    /// when that crate shows up paired with anything else — otherwise every pair
+    /// containing litesvm reports as a brand-new discovery.
+    #[test]
+    fn compile_conflicts_match_on_either_side() {
+        assert_eq!(
+            known_compile_conflict_id("litesvm", "light-sdk").as_deref(),
+            Some("wincode-schema-split")
+        );
+        assert_eq!(
+            known_compile_conflict_id("anchor-lang", "litesvm").as_deref(),
+            Some("wincode-schema-split")
+        );
+        assert!(known_compile_conflict_id("anchor-lang", "mpl-core").is_none());
+    }
+
+    /// The resolve-level matcher keeps the stricter rule: a pair is only "known"
+    /// when the entry names BOTH crates.
+    #[test]
+    fn resolve_conflicts_still_require_both_sides() {
+        assert_eq!(
+            known_conflict_id("litesvm", "light-sdk").as_deref(),
+            Some("litesvm-light")
+        );
+        assert!(known_conflict_id("litesvm", "mpl-core").is_none());
+    }
 }
