@@ -152,6 +152,12 @@ pub fn probe(deps: &[(String, String, Vec<String>)], tag: &str) -> Result<ProbeR
     Ok(result)
 }
 
+/// Where every compile probe builds. Stable across runs on purpose: the second
+/// `facts verify` of the day should not pay for the first one again.
+pub fn compile_probe_target_dir() -> PathBuf {
+    std::env::temp_dir().join("sondir-cprobe-target")
+}
+
 /// Outcome of compile-probing one synthetic manifest.
 pub enum CompileProbeResult {
     /// Resolved AND compiled — whatever broke rustc has been fixed upstream.
@@ -183,8 +189,14 @@ pub fn compile_probe(
         .collect();
     let workdir = std::env::temp_dir().join(format!("sondir-cprobe-{tag}-{}", std::process::id()));
     write_workspace(&workdir, &selection)?;
+    // One shared target dir across every compile probe. Cargo locks it, so
+    // concurrent probes serialize — but the solana tree is ~400 crates that
+    // barely differ between probes, so cache reuse beats the lost parallelism by
+    // a wide margin. Without this, `sweep --compile` would rebuild the world 66
+    // times.
     let output = Command::new("cargo")
         .args(["check", "--quiet"])
+        .env("CARGO_TARGET_DIR", compile_probe_target_dir())
         .current_dir(&workdir)
         .output()
         .context("cargo not found on PATH")?;

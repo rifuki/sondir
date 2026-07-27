@@ -120,7 +120,7 @@ The category exists because of a live miss: on 2026-07-27 `sweep` reported 66/66
 on the same day a bare `cargo add litesvm@0.15` could not be compiled (canary c22/c24). The
 wincode 0.5/0.6 split resolves flawlessly, so every resolve-level probe walked past it.
 Worth reading `sweep`'s green with that in mind: it means *no version-selection conflicts*,
-which is not the same as *a fresh project builds*.
+which is not the same as *a fresh project builds* — unless you pass `--compile`, below.
 
 ## Battle-testing
 
@@ -179,6 +179,12 @@ ecosystem crates is probed through cargo's resolver at **latest × latest** (wha
 or *latest-only* (cargo escapes by backtracking one side; the report shows the escape
 versions) — and matched against known conflicts. Anything unknown is a NEW candidate, exit
 code 5, and the weekly CI run (`.github/workflows/sweep.yml`) opens an issue for it.
+
+`sondir sweep --compile` closes the gap the plain sweep leaves: every pair that *resolves*
+also gets a `cargo check`, so a graph cargo accepts and rustc rejects is reported as
+`RESOLVES BUT DOES NOT COMPILE` instead of counted as clean. It is slow — tens of minutes
+cold — because it really does build the dependency trees; all probes share one target
+directory so the cost is paid once rather than per pair.
 
 Its first live run (2026-07-04) found **four conflicts recorded nowhere**: mollusk-svm
 0.13.x turns out to carry the same Agave-4.0-wave exact pins as litesvm 0.13.x (via
