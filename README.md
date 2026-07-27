@@ -116,6 +116,13 @@ because the entry has become an ordinary `[[conflicts]]` case and should be move
 a project declares reveals the duplication, since it arrives through transitive deps
 mid-migration.
 
+Verifying one is cheaper than it sounds, which is why the daily watch workflow can afford it:
+a trait-coherence break fires from the bottom of the graph, so rustc aborts after a handful
+of crates instead of building the tree. Measured on CI 2026-07-27 — two compile-conflict
+entries verified in ~28s, and the whole `watch` job went from 1m25s to 1m31s. A compile probe
+only becomes expensive on the day the entry goes **stale** and the graph builds clean, which
+is precisely the day you want to be told.
+
 The category exists because of a live miss: on 2026-07-27 `sweep` reported 66/66 pairs clean
 on the same day a bare `cargo add litesvm@0.15` could not be compiled (canary c22/c24). The
 wincode 0.5/0.6 split resolves flawlessly, so every resolve-level probe walked past it.
