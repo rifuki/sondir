@@ -102,6 +102,17 @@ metadata and a live VM probe rather than trusting either the DB or the "it's fix
 
 ### Discoveries
 
+18. **Why nobody was told: the alarms were mute (2026-07-27).** Every alerting workflow
+    captured its exit code as `cmd --json | tee file` then `code=$?` — which is *tee's*
+    status, always 0, not sondir's. So `sweep`'s exit 5, `watch`'s exit 3 and
+    `facts verify`'s exit 4 were all swallowed and no alert step could ever fire. That is
+    the timeline of this whole batch: litesvm 0.14.0 landed 2026-07-13 and made six entries
+    stale the same day; the daily watch was supposed to say so and structurally could not.
+    They surfaced 14 days later only because `facts verify` happened to be run by hand.
+    Fixed with `set +e -o pipefail` in all three places. Same class of bug as the
+    `cargo test | grep FAILED` chain that pushed a red commit earlier today — a pipeline
+    reporting the wrong member's status.
+
 17. **The compile sweep paid for itself on its first run (c28).** 21 of 66 pairs resolve
     cleanly and do not compile. Eleven were litesvm pairs, correctly matched to
     `wincode-schema-split`. The other **ten were mollusk-svm 0.14.0 pairs reported as NEW** —

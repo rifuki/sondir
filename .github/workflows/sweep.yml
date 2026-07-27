@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "37 4 * * 1" # Mondays 04:37 UTC
   workflow_dispatch:
+    inputs:
+      compile:
+        description: "Also cargo check every pair that resolves (slow: tens of minutes)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,11 +29,19 @@ jobs:
       - name: build
         run: cargo build --release
 
+      # --compile is dispatch-only, never scheduled: it really builds the
+      # dependency trees, so it costs tens of minutes of runner time. The weekly
+      # run stays resolver-only; reach for --compile when the ecosystem is
+      # mid-migration and a resolvable graph might still not build.
       - name: run sondir sweep
         id: sweep
+        env:
+          SWEEP_FLAGS: ${{ inputs.compile && '--compile' || '' }}
         run: |
-          set +e
-          ./target/release/sondir sweep --json | tee sweep.json
+          # pipefail is load-bearing: without it `$?` after `| tee` is TEE's status,
+          # which is always 0, so the alert below could never fire.
+          set +e -o pipefail
+          ./target/release/sondir sweep $SWEEP_FLAGS --json | tee sweep.json
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # 0 = nothing new, 5 = new conflict candidates; anything else is a failure.
